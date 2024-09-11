@@ -1422,7 +1422,11 @@ namespace MoodleExtraction.Controllers
                         {
                             ContentName = Path.GetFileName(subDirectory),
                             Type = "H5P",
-                            FilesUrls = new List<string> { $"/h5p/{courseName}/{sectionName}/{GetRelativePath(baseDirectory, subDirectory).Replace("\\", "/")}" }
+                            Files = new FilesModel
+                            {
+                                FilesH5p = new List<string> { $"/h5p/{courseName}/{sectionName}/{GetRelativePath(baseDirectory, subDirectory).Replace("\\", "/")}" }
+                                                            }
+
                         };
                         sectionElement.contents.Add(content);
                         return true;
@@ -1444,7 +1448,10 @@ namespace MoodleExtraction.Controllers
                             {
                                 ContentName = Path.GetFileName(subDirectory),
                                 Type = "H5P",
-                                FilesUrls = new List<string> { $"/h5p/{courseName}/{sectionName}/{GetRelativePath(subDirectory, subDir2).Replace("\\", "/")}" }
+                                Files = new FilesModel
+                                {
+                                    FilesH5p = new List<string> { $"/h5p/{courseName}/{sectionName}/{GetRelativePath(subDirectory, subDir2).Replace("\\", "/")}" }
+                                }
                             };
                             sectionElement.contents.Add(content);
                             return true;
@@ -1521,8 +1528,7 @@ namespace MoodleExtraction.Controllers
                 var content = new Content
                 {
                     ContentName = "",
-                    FilesUrls = new List<string>(),
-                    Base64=""
+                    Files = new FilesModel()
                 };
 
                 // Fetch the contents based on downloaded files and types
@@ -1531,68 +1537,63 @@ namespace MoodleExtraction.Controllers
                     var relativeFilePath = filePath.Replace("\\", "/");
                     var fileName = Path.GetFileNameWithoutExtension(filePath);
                     string sanitizedFileNamePart = SanitizeFileName(fileName).Split("__")[0];
-                    string contentNamePart = content.ContentName.Split("__")[0];
-                    if (sanitizedFileNamePart != contentNamePart && content.ContentName != "")
-                    {
-                        sectionElement.contents.Add(content);
-                         content = new Content
-                        {
-                            ContentName = SanitizeFileName(fileName),
-                            FilesUrls = new List<string>(),
-                            Base64 = ""
-                        };
 
-                    }
-                    else
+                    var existContent = sectionElement.contents.Find(x => x.ContentName == sanitizedFileNamePart);
+
+                    if (existContent == null)
                     {
                         content = new Content
                         {
-                            ContentName = SanitizeFileName(fileName),
-                            FilesUrls = content.FilesUrls,
-                            Base64 = content.Base64
-
+                            ContentName = sanitizedFileNamePart,
+                            Files = new FilesModel()
                         };
-                    }
-                 
+                        if (filePath.EndsWith(".html") && !filePath.EndsWith("_question.html"))
+                        {
+                            content.Type = "html";
+                            content.Files.FileHtml =  "/courses/" + relativeFilePath ;
+                        }
+                        else if (filePath.EndsWith(".pdf"))
+                        {
+                            content.Type = "file";
+                            content.Files.FilePdf = "/courses/" + relativeFilePath;
 
+                        }
+                        else if (filePath.EndsWith(".mp4"))
+                        {
+                            content.Type = "media";
+                            content.Files.FileMp4 = "/courses/" + relativeFilePath;
+                        }
+                        else if (filePath.EndsWith("_question.html") || filePath.EndsWith("_base64.txt"))
+                        {
+                            content.Type = "geogebra";
+                            content.Width = "960";  
+                            content.Height = "560"; 
+                            content.Files.FileHtml = !filePath.EndsWith("_question.html") ? "": Path.Combine(sectionDirectory, content.ContentName + "_question.html").Replace("\\", "/");
+                            content.Files.FileTxt = !filePath.EndsWith("_base64.txt") ? "":  Path.Combine(sectionDirectory, content.ContentName + "_base64.txt").Replace("\\", "/").ToString();
+                        }
+                        else if (Directory.Exists(filePath) && Path.GetFileName(filePath).EndsWith(".h5p"))
+                        {
+                            content.Type = "H5P";
+                            content.Files.FilesH5p = Directory.GetFiles(filePath).Select(f => f.Replace("\\", "/").Replace(courseDirectory + "/", "")).ToList();
+                        }
+                        else
+                        {
+                            continue;
+                        }
+                        sectionElement.contents.Add(content);
+                    }
+                    else if(existContent != null && existContent.Files != null)
+                    {
+                        if (filePath.EndsWith("_question.html"))
+                        {
+                            existContent.Files.FileHtml = Path.Combine(sectionDirectory, content.ContentName + "_question.html").Replace("\\", "/");
+                        }
+                        else if (filePath.EndsWith("_base64.txt"))
+                        {
+                            existContent.Files.FileTxt = Path.Combine(sectionDirectory, content.ContentName + "_base64.txt").Replace("\\", "/").ToString();
+                        }
+                    }
 
-                    if (filePath.EndsWith(".html") && !filePath.EndsWith("_question.html"))
-                    {
-                        content.Type = "html";
-                        content.FilesUrls = new List<string> { "/courses/" + relativeFilePath };
-                    }
-                    else if (filePath.EndsWith(".pdf"))
-                    {
-                        content.Type = "file";
-                        content.FilesUrls = new List<string> { "/courses/" + relativeFilePath };
-
-                    }
-                    else if (filePath.EndsWith(".mp4"))
-                    {
-                        content.Type = "media";
-                        content.FilesUrls = new List<string> { "/courses/" + relativeFilePath };
-
-                    }
-                    else if (filePath.EndsWith("_question.html") || filePath.EndsWith("_base64.txt"))
-                    {
-                        content.Type = "geogebra";
-                        content.Width = "960";  // Default width
-                        content.Height = "560"; // Default height
-                        content.Base64 = !filePath.EndsWith("_question.html") ? content.Base64 : Path.Combine(sectionDirectory, content.ContentName + "_question.html").Replace("\\", "/");
-                        content.FilesUrls = !filePath.EndsWith("_base64.txt") ? content.FilesUrls :  new List<string>() { Path.Combine(sectionDirectory, content.ContentName + "_base64.txt").Replace("\\", "/").ToString() };
-                        continue;
-                    }
-                    else if (Directory.Exists(filePath) && Path.GetFileName(filePath).EndsWith(".h5p"))
-                    {
-                        content.Type = "H5P";
-                        content.FilesUrls = Directory.GetFiles(filePath).Select(f => f.Replace("\\", "/").Replace(courseDirectory + "/", "")).ToList();
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                  
-                    sectionElement.contents.Add(content);
                 }
 
                 courseJson.Elements.Add(sectionElement);

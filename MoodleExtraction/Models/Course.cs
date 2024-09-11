@@ -37,10 +37,17 @@ public class Content
 {
     public string? ContentName { get; set; }
     public string? Type { get; set; }
-    public List<string>? FilesUrls { get; set; }
     public string? Width { get; set; }
     public string? Height { get; set; }
-    public string? Base64 { get; set; }
+    public FilesModel? Files { get; set; }
+}
+
+public class FilesModel {
+    public string FileHtml { get; set; } = default!;
+    public string FileTxt { get; set; } = default!;
+    public string FilePdf { get; set; } = default!;
+    public string FileMp4 { get; set; } = default!;
+    public List<string> FilesH5p { get; set; } = new List<string>();
 }
 public class ProcessCoursesRequest
 {

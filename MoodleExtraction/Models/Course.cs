@@ -27,6 +27,7 @@ public class Element
     public string? ElementName { get; set; }
     public string? ElementId { get; set; }
     public string? CourseId { get; set; }
+    public string DataSection { get; set; }
     public string? IconBody { get; set; }
     public string? Link { get; set; }
     public bool IsDownloaded { get; set; }

@@ -17,6 +17,7 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using Microsoft.Azure.Cosmos;
 using HtmlAgilityPack;
+using static System.Collections.Specialized.BitVector32;
 
 namespace MoodleExtraction.Controllers
 {
@@ -26,7 +27,7 @@ namespace MoodleExtraction.Controllers
     {
         private readonly CosmosClient _cosmosClient;
         private readonly Microsoft.Azure.Cosmos.Container _cosmosContainer;
-        private const string SasToken = "?sv=2024-08-04&ss=b&srt=co&se=2024-09-11T16%3A45%3A18Z&sp=r&sig=eyZIXZTfSpCRZ19xjomLgMK%2FlvS23mdquWvrXYW9iBA%3D";
+        private const string SasToken = "?sp=r&st=2024-09-12T10:39:10Z&se=2025-08-01T21:39:10Z&sv=2022-11-02&sr=c&sig=rZjL2NQ1P7LwCN98QWlNoSJYS420ys0cAts9a25KXJU%3D";
 
         public MoodleScraperController()
         {
@@ -89,12 +90,12 @@ namespace MoodleExtraction.Controllers
                             string courseDirectory = Path.Combine(sanitizedCategory1, sanitizedCategory2, sanitizedCourseName);
 
                             // **Check if the course directory already exists and contains subfolders**
-                            if (Directory.Exists(courseDirectory) )
+                            if (Directory.Exists(courseDirectory))
                             {
                                 Console.WriteLine($"Course '{courseName}' already downloaded. Skipping...");
                                 // **Immediately process this course for JSON and Blob Upload**
-/*                                await ProcessCourseAfterDownload(courseName, courseDirectory);
-*/
+                                /*                                await ProcessCourseAfterDownload(courseName, courseDirectory);
+                                */
                                 continue; // Skip this course and move to the next one
 
                             }
@@ -115,7 +116,7 @@ namespace MoodleExtraction.Controllers
                         }
                     }
 
-                    foreach (var course in courses)
+                    foreach (var course in courses.Skip(1))
                     {
                         try
                         {
@@ -225,10 +226,12 @@ namespace MoodleExtraction.Controllers
 
             // Step 4a: Extract sections and images within the content
             var sections = driver.FindElements(By.CssSelector("div[role='main'] ul.tiles li.tile.tile-clickable.phototile.altstyle"));
+            var orderedSections = sections
+         .OrderBy(x => int.Parse(x.GetAttribute("data-section")))
+         .ToList();
 
             int sectionId = 1;
-
-            foreach (var section in sections)
+            foreach (var section in orderedSections)
             {
                 try
                 {
@@ -240,7 +243,8 @@ namespace MoodleExtraction.Controllers
 
                     var sectionNameElement = photoTileTextDiv.FindElement(By.TagName("h3"));
                     string sectionName = SanitizeFileName(sectionNameElement.Text);
-                    string sectionDirectory = Path.Combine(courseDirectory, sectionName);
+
+                    string sectionDirectory = Path.Combine(courseDirectory, sectionName + "-" + sectionId.ToString());
                     Directory.CreateDirectory(sectionDirectory);
 
                     var activityLinkElement = tileLi.FindElement(By.CssSelector("a.tile-link"));
@@ -249,16 +253,59 @@ namespace MoodleExtraction.Controllers
                     // Scrape activity and images in course content
                     await ScrapeActivity(driver, sectionActivityUrl, sectionById, sectionDirectory, sectionName);
 
+                    // Navigate back to the course URL
                     driver.Navigate().GoToUrl(courseUrl);
                     await Task.Delay(2000);
 
+
                     sectionId++;
                 }
-                catch (NoSuchElementException ex)
+                catch (Exception ex)
                 {
                     Console.WriteLine($"Element not found for section {sectionId}: {ex.Message}");
                     continue;
                 }
+
+
+
+
+                //foreach (var section in orderedSections)
+                //{
+                //    try
+                //    {
+                //        string tileId = $"tile-{sectionId}";
+                //        string sectionById = $"section-{sectionId}";
+
+                //        var tileLi = driver.FindElement(By.Id(tileId));
+                //        var photoTileTextDiv = tileLi.FindElement(By.CssSelector("div.photo-tile-text"));
+
+                //        var sectionNameElement = photoTileTextDiv.FindElement(By.TagName("h3"));
+                //        string sectionName = SanitizeFileName(sectionNameElement.Text);
+
+                //        string tabIndex = section.GetAttribute("tabindex");
+
+                //        string dataSection = section.GetAttribute("data-section");
+
+                //        string sectionDirectory = Path.Combine(courseDirectory, sectionName+"-"+ dataSection);
+
+                //        Directory.CreateDirectory(sectionDirectory);
+
+                //        var activityLinkElement = tileLi.FindElement(By.CssSelector("a.tile-link"));
+                //        string sectionActivityUrl = activityLinkElement.GetAttribute("href");
+
+                //        // Scrape activity and images in course content
+                //        await ScrapeActivity(driver, sectionActivityUrl, sectionById, sectionDirectory, sectionName);
+
+                //        driver.Navigate().GoToUrl(courseUrl);
+                //        await Task.Delay(2000);
+
+                //        sectionId++;
+                //    }
+                //    catch (Exception ex)
+                //    {
+                //        Console.WriteLine($"Element not found for section {sectionId}: {ex.Message}");
+                //        continue;
+                //    }
             }
         }
 
@@ -309,9 +356,13 @@ namespace MoodleExtraction.Controllers
 
             if (sectionElements.Count == 0)
             {
+
+                await DownloadPageContent(driver, "", sectionDirectory, sectionName);
+
                 // No li elements found, skip to the next section
-                return;
             }
+            //else
+            //   await DownloadDescriptionContent(driver, sectionDirectory, "Description");
 
             foreach (var section in sectionElements)
             {
@@ -319,10 +370,22 @@ namespace MoodleExtraction.Controllers
                 {
                     // Existing code to handle other types like TEST, H5P, GEOGEBRA, etc.
                     var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
-                    var nameElement = section.FindElement(By.CssSelector("div.activityname a"));
+                    var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
                     string type = typeElement.Text.Trim();
-                    string activityName = SanitizeFileName(nameElement.Text.Trim());
-                    string sectionActivityUrl = nameElement.GetAttribute("href");
+                    var nameText = nameElement.Text;
+                    var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
+
+                    // If the element exists, remove its text from nameText
+                    if (hiddenSpanElements.Count > 0)
+                    {
+                        var hiddenText = hiddenSpanElements[0].Text;
+                        nameText = nameText.Replace(hiddenText, "").Trim();
+                    }
+
+
+                    string activityName = SanitizeFileName(nameText);
+                    var element = section.FindElement(By.CssSelector("div.activityname a"));
+                    string sectionActivityUrl = element.GetAttribute("href");
 
                     if (type == "TEST")
                     {
@@ -488,8 +551,7 @@ namespace MoodleExtraction.Controllers
                 BlobContainerClient containerClient = new BlobContainerClient(blobConnectionString, coursesContainerName);
 
                 // Upload the downloaded image to Blob Storage
-                string blobName = "/" + Path.Combine(directory, fileName).Replace("\\", "/"); // Ensure the directory structure is preserved in blob storage
-
+                string blobName = "/" + Path.Combine(directory, fileName).Replace("\\", "/"); // Ensure the directory structure is preserved in blob storagesu
                 BlobClient blobClient = containerClient.GetBlobClient(blobName);
 
                 // Set MIME type for the image (optional, assumes image/jpg)
@@ -516,47 +578,208 @@ namespace MoodleExtraction.Controllers
 
         private async Task DownloadPageContent(IWebDriver driver, string pageUrl, string sectionDirectory, string activityName)
         {
-            // Open a new tab and switch to it
-            ((IJavaScriptExecutor)driver).ExecuteScript("window.open();");
-            driver.SwitchTo().Window(driver.WindowHandles.Last());
+            try
+            {
+                if (pageUrl != "")
+                {
+                    // Open a new tab and switch to it
+                    ((IJavaScriptExecutor)driver).ExecuteScript("window.open();");
+                    driver.SwitchTo().Window(driver.WindowHandles.Last());
 
-            // Navigate to the PAGE URL in the new tab
-            driver.Navigate().GoToUrl(pageUrl);
-            await Task.Delay(2000); // Wait for the page to load
+                    // Navigate to the PAGE URL in the new tab
 
-            // Step 1: Extract JS and CSS files
-            string pageHtml = driver.PageSource;
+                    driver.Navigate().GoToUrl(pageUrl);
+                    await Task.Delay(2000); // Wait for the page to load
+                }
+                // Step 1: Extract JS and CSS files
+                string pageHtml = driver.PageSource;
 
-            // Remove unwanted HTML elements
-            pageHtml = RemoveUnwantedHtmlElements(pageHtml);
-            string scriptsDirectory = Path.Combine(sectionDirectory, "scripts");
-            string stylesDirectory = Path.Combine(sectionDirectory, "styles");
-            string imagesDirectory = Path.Combine(sectionDirectory, "images");
+                // Remove unwanted HTML elements
+                pageHtml = RemoveUnwantedHtmlElements(pageHtml);
+                string scriptsDirectory = Path.Combine(sectionDirectory, "scripts");
+                string stylesDirectory = Path.Combine(sectionDirectory, "styles");
+                string imagesDirectory = Path.Combine(sectionDirectory, "images");
 
-            Directory.CreateDirectory(scriptsDirectory);
-            Directory.CreateDirectory(stylesDirectory);
-            Directory.CreateDirectory(imagesDirectory);
+                Directory.CreateDirectory(scriptsDirectory);
+                Directory.CreateDirectory(stylesDirectory);
+                Directory.CreateDirectory(imagesDirectory);
 
-            pageHtml = await DownloadAndReplaceResources(driver, pageHtml, scriptsDirectory, stylesDirectory, imagesDirectory);
+                pageHtml = await DownloadAndReplaceResources(driver, pageHtml, scriptsDirectory, stylesDirectory, imagesDirectory);
 
-            // Step 2: Extract HTML content from the main div
-            var mainDiv = driver.FindElement(By.CssSelector("div[role='main']"));
-            string mainContentHtml = mainDiv.GetAttribute("outerHTML");
+                // Step 2: Extract HTML content from the main div
+                string mainContentHtml = "";
 
-            // Add meta charset tag and combine the modified HTML content with the main content
-            pageHtml = "<html><head><meta charset=\"UTF-8\">" + pageHtml + "</head><body>" + mainContentHtml + "</body></html>";
+                if (pageUrl == "")
+                {
+                    try
+                    {
+                        var mainDiv = driver.FindElement(By.CssSelector("div.format_tiles_section_content .summary"));
+                        mainContentHtml = mainDiv.GetAttribute("outerHTML");
 
-            // Step 3: Download media files
-            //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
-            pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);
 
-            // Save the final HTML content to a file
-            string pageFilePath = Path.Combine(sectionDirectory, $"{activityName}.html");
-            await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
+                        int headStartIndex = pageHtml.IndexOf("<head");  // Find the start of the <head> tag
+                        int headEndTagIndex = pageHtml.IndexOf(">", headStartIndex);  // Find the end of the opening <head> tag
+                        int headCloseTagIndex = pageHtml.IndexOf("</head>");  // Find the closing </head> tag
 
-            // Close the new tab and switch back to the original tab
-            driver.Close();
-            driver.SwitchTo().Window(driver.WindowHandles.First());
+                        if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
+                        {
+                            // Extract the content between the <head> and </head> tags
+                            pageHtml = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Head tag not found in the HTML document.");
+                        }
+
+
+
+                    }
+                    catch (Exception ex)
+                    {
+
+                        throw ex;
+                    }
+
+
+                }
+                else
+                {
+                    var mainDiv = driver.FindElement(By.CssSelector("div[role='main']"));
+                    mainContentHtml = mainDiv.GetAttribute("outerHTML");
+                }
+
+
+                // Add meta charset tag and combine the modified HTML content with the main content
+                pageHtml = "<html><head><meta charset=\"UTF-8\">" + pageHtml + "</head><body>" + mainContentHtml + "</body></html>";
+
+                // Step 3: Download media files
+                //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
+                pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);
+
+                // Save the final HTML content to a file
+                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName}.html");
+                await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
+
+                // Close the new tab and switch back to the original tab
+                if (pageUrl != "")
+                {
+                    driver.Close();
+
+                    driver.SwitchTo().Window(driver.WindowHandles.First());
+                }
+
+
+            }
+            catch (Exception ex)
+            {
+
+                throw ex;
+            }
+
+        }
+
+
+        private async Task DownloadDescriptionContent(IWebDriver driver, string sectionDirectory, string activityName)
+        {
+            try
+            {
+                string mainContentHtml = "";
+
+                try
+                {
+                    // Attempt to find the summary element
+                    var mainDiv = driver.FindElement(By.CssSelector("div.format_tiles_section_content .summary"));
+                    string mainDivContent = mainDiv.GetAttribute("innerHTML").Trim();
+
+                    if (string.IsNullOrEmpty(mainDivContent))
+                    {
+                        Console.WriteLine("The <div class=\"summary\"></div> is empty, returning.");
+                        return; // Exit the method or loop since the div has no content
+                    }
+
+
+                    mainContentHtml = mainDiv.GetAttribute("outerHTML");
+                }
+                catch (NoSuchElementException)
+                {
+                    // Log or handle the case where .summary is not found
+                    Console.WriteLine(".summary element not found, proceeding with head extraction.");
+                    return;
+                }
+
+                // Step 1: Extract JS and CSS files
+                string pageHtml = driver.PageSource;
+
+                // Remove unwanted HTML elements
+                pageHtml = RemoveUnwantedHtmlElements(pageHtml);
+                string scriptsDirectory = Path.Combine(sectionDirectory, "scripts");
+                string stylesDirectory = Path.Combine(sectionDirectory, "styles");
+                string imagesDirectory = Path.Combine(sectionDirectory, "images");
+
+                Directory.CreateDirectory(scriptsDirectory);
+                Directory.CreateDirectory(stylesDirectory);
+                Directory.CreateDirectory(imagesDirectory);
+
+                pageHtml = await DownloadAndReplaceResources(driver, pageHtml, scriptsDirectory, stylesDirectory, imagesDirectory);
+
+                // Step 2: Extract HTML content from the main div
+
+
+                try
+                {
+                    // Attempt to find the summary element
+                    var mainDiv = driver.FindElement(By.CssSelector("div.format_tiles_section_content .summary"));
+                    mainContentHtml = mainDiv.GetAttribute("outerHTML");
+                }
+                catch (NoSuchElementException)
+                {
+                    // Log or handle the case where .summary is not found
+                    Console.WriteLine(".summary element not found, proceeding with head extraction.");
+                }
+
+                try
+                {
+                    // Extract the <head> section from pageHtml
+                    int headStartIndex = pageHtml.IndexOf("<head");  // Find the start of the <head> tag
+                    int headEndTagIndex = pageHtml.IndexOf(">", headStartIndex);  // Find the end of the opening <head> tag
+                    int headCloseTagIndex = pageHtml.IndexOf("</head>");  // Find the closing </head> tag
+
+                    if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
+                    {
+                        // Extract the content between the <head> and </head> tags
+                        pageHtml = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
+                    }
+                    else
+                    {
+                        Console.WriteLine("Head tag not found in the HTML document.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"An error occurred while extracting the head: {ex.Message}");
+                }
+
+
+                // Add meta charset tag and combine the modified HTML content with the main content
+                pageHtml = "<html><head><meta charset=\"UTF-8\">" + pageHtml + "</head><body>" + mainContentHtml + "</body></html>";
+
+                // Step 3: Download media files
+                //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
+                pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);
+
+                // Save the final HTML content to a file
+                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName}.html");
+                await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
+
+
+
+            }
+            catch (Exception ex)
+            {
+
+                throw ex;
+            }
+
         }
 
         private async Task<string> DownloadAndReplaceResources(IWebDriver driver, string htmlContent, string scriptsDirectory, string stylesDirectory, string imagesDirectory)
@@ -1044,7 +1267,7 @@ namespace MoodleExtraction.Controllers
                 string geoGebraHtml = noOverflowDiv.GetAttribute("outerHTML");
 
                 // Save the HTML content to a file
-                string geoGebraFilePath = Path.Combine(sectionDirectory, $"{activityName}_question.html");
+                string geoGebraFilePath = Path.Combine(sectionDirectory, $"{activityName}_geogebra.html");
                 await System.IO.File.WriteAllTextAsync(geoGebraFilePath, geoGebraHtml);
 
                 // Extract the ggbBase64 value from the script elements
@@ -1060,7 +1283,7 @@ namespace MoodleExtraction.Controllers
                         if (match.Success)
                         {
                             string base64String = match.Groups[1].Value;
-                            string base64FilePath = Path.Combine(sectionDirectory, $"{activityName}_base64.txt");
+                            string base64FilePath = Path.Combine(sectionDirectory, $"{activityName}_geogebra.txt");
                             await System.IO.File.WriteAllTextAsync(base64FilePath, base64String);
                         }
                         break;
@@ -1413,25 +1636,20 @@ namespace MoodleExtraction.Controllers
             {
                 if (System.IO.File.Exists(Path.Combine(subDirectory, "h5p.json")))
                 {
-
-                    if (System.IO.File.Exists(Path.Combine(subDirectory, "h5p.json")))
+                    var dossier = subDirectory.Replace("\\", "/");
+                    // Create content for H5P
+                    var content = new Content
                     {
-
-                        // Create content for H5P
-                        var content = new Content
+                        ContentName = Path.GetFileName(subDirectory),
+                        Type = "H5P",
+                        Files = new FilesModel
                         {
-                            ContentName = Path.GetFileName(subDirectory),
-                            Type = "H5P",
-                            Files = new FilesModel
-                            {
-                                FilesH5p = new List<string> { $"/h5p/{courseName}/{sectionName}/{GetRelativePath(baseDirectory, subDirectory).Replace("\\", "/")}" }
-                                                            }
+                            FilesH5p = new List<string> { $"/h5p/{dossier}" }
+                        }
 
-                        };
-                        sectionElement.contents.Add(content);
-                        return true;
-
-                    }
+                    };
+                    sectionElement.contents.Add(content);
+                    return true;
 
                 }
                 else
@@ -1443,6 +1661,7 @@ namespace MoodleExtraction.Controllers
                         if (System.IO.File.Exists(Path.Combine(subDir2, "h5p.json")))
                         {
 
+                            var dossier = subDirectory.Replace("\\", "/");
                             // Create content for H5P
                             var content = new Content
                             {
@@ -1450,7 +1669,7 @@ namespace MoodleExtraction.Controllers
                                 Type = "H5P",
                                 Files = new FilesModel
                                 {
-                                    FilesH5p = new List<string> { $"/h5p/{courseName}/{sectionName}/{GetRelativePath(subDirectory, subDir2).Replace("\\", "/")}" }
+                                    FilesH5p = new List<string> { $"/h5p/{dossier}" }
                                 }
                             };
                             sectionElement.contents.Add(content);
@@ -1468,9 +1687,21 @@ namespace MoodleExtraction.Controllers
         private static string GetRelativePath(string baseDirectory, string subDirectory)
         {
             // Generate relative path for URLs
-            Uri baseUri = new Uri(baseDirectory);
-            Uri subUri = new Uri(subDirectory);
-            return Uri.UnescapeDataString(baseUri.MakeRelativeUri(subUri).ToString().Replace('/', Path.DirectorySeparatorChar));
+            try
+            {
+                string uriCompatibleBaseDirectory = baseDirectory.Replace("\\", "/");
+                string uriCompatiblesubDirectory = subDirectory.Replace("\\", "/");
+
+                Uri baseUri = new Uri(uriCompatibleBaseDirectory, UriKind.RelativeOrAbsolute);
+                Uri subUri = new Uri(uriCompatiblesubDirectory, UriKind.RelativeOrAbsolute);
+                return Uri.UnescapeDataString(baseUri.MakeRelativeUri(subUri).ToString().Replace('/', Path.DirectorySeparatorChar));
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e.ToString());
+                return "";
+            }
+
         }
 
         private async Task GenerateCourseJson(string courseName, string courseDirectory, string? courseImagePath, List<string> sections, List<ElementProgramme> elementProgrammes)
@@ -1502,13 +1733,22 @@ namespace MoodleExtraction.Controllers
             int elementId = 1;
             foreach (var section in sections)
             {
-                string sectionName = Path.GetFileName(section); // Use the folder name as the section name
-                string sectionDirectory = Path.Combine(courseDirectory, SanitizeFileName(sectionName));
+                string sectionName = Path.GetFileName(section);
 
+                string dataSection = sectionName.Split("-").Last();
+                string sectionDirectory = Path.Combine(courseDirectory, SanitizeFileName(sectionName));
+                int lastHyphenIndex = sectionName.LastIndexOf('-');
+
+                // Check if there is a hyphen to remove
+                if (lastHyphenIndex != -1)
+                {
+                    sectionName = sectionName.Substring(0, lastHyphenIndex); // This will give "section"
+                }
                 var sectionElement = new Element
                 {
                     ElementName = sectionName,
                     ElementId = elementId.ToString(),
+                    DataSection = dataSection,
                     CourseId = courseId,
                     IconBody = "<i class=\"ki-duotone text-primary ki-book-open fs-3x\"><span class=\"path1\"></span><span class=\"path2\"></span><span class=\"path3\"></span><span class=\"path4\"></span></i>",
                     Link = $"/courses/{courseName}/{SanitizeFileName(sectionName)}",
@@ -1537,8 +1777,24 @@ namespace MoodleExtraction.Controllers
                     var relativeFilePath = filePath.Replace("\\", "/");
                     var fileName = Path.GetFileNameWithoutExtension(filePath);
                     string sanitizedFileNamePart = SanitizeFileName(fileName).Split("__")[0];
+                    string type = sanitizedFileNamePart.Split("_").Last() ?? "";
+
+                    // Check if the string contains an underscore
+                    if (sanitizedFileNamePart.Contains("_") && type == "geogebra")
+                    {
+                        // Find the index of the last underscore
+                        int lastUnderscoreIndex = sanitizedFileNamePart.LastIndexOf("_");
+
+                        // Remove the part of the string after the last underscore
+                        sanitizedFileNamePart = sanitizedFileNamePart.Substring(0, lastUnderscoreIndex);
+
+                    }
+
 
                     var existContent = sectionElement.contents.Find(x => x.ContentName == sanitizedFileNamePart);
+
+                    
+
 
                     if (existContent == null)
                     {
@@ -1547,10 +1803,10 @@ namespace MoodleExtraction.Controllers
                             ContentName = sanitizedFileNamePart,
                             Files = new FilesModel()
                         };
-                        if (filePath.EndsWith(".html") && !filePath.EndsWith("_question.html"))
+                        if (filePath.EndsWith(".html") && type != "geogebra")
                         {
                             content.Type = "html";
-                            content.Files.FileHtml =  "/courses/" + relativeFilePath ;
+                            content.Files.FileHtml = "/courses/" + relativeFilePath;
                         }
                         else if (filePath.EndsWith(".pdf"))
                         {
@@ -1563,13 +1819,13 @@ namespace MoodleExtraction.Controllers
                             content.Type = "media";
                             content.Files.FileMp4 = "/courses/" + relativeFilePath;
                         }
-                        else if (filePath.EndsWith("_question.html") || filePath.EndsWith("_base64.txt"))
+                        else if (type == "geogebra")
                         {
-                            content.Type = "geogebra";
-                            content.Width = "960";  
-                            content.Height = "560"; 
-                            content.Files.FileHtml = !filePath.EndsWith("_question.html") ? "": Path.Combine(sectionDirectory, content.ContentName + "_question.html").Replace("\\", "/");
-                            content.Files.FileTxt = !filePath.EndsWith("_base64.txt") ? "":  Path.Combine(sectionDirectory, content.ContentName + "_base64.txt").Replace("\\", "/").ToString();
+                            content.Type = type;
+                            content.Width = "960";
+                            content.Height = "560";
+                            content.Files.FileHtml = !filePath.EndsWith(".html") ? "" : "/courses/" + Path.Combine(sectionDirectory, content.ContentName + "_geogebra.html").Replace("\\", "/");
+                            content.Files.FileTxt = !filePath.EndsWith(".txt") ? "" : "/courses/" + Path.Combine(sectionDirectory, content.ContentName + "_geogebra.txt").Replace("\\", "/").ToString();
                         }
                         else if (Directory.Exists(filePath) && Path.GetFileName(filePath).EndsWith(".h5p"))
                         {
@@ -1582,15 +1838,15 @@ namespace MoodleExtraction.Controllers
                         }
                         sectionElement.contents.Add(content);
                     }
-                    else if(existContent != null && existContent.Files != null)
+                    else if (existContent != null && existContent.Files != null)
                     {
-                        if (filePath.EndsWith("_question.html"))
+                        if (filePath.EndsWith(".html"))
                         {
-                            existContent.Files.FileHtml = Path.Combine(sectionDirectory, content.ContentName + "_question.html").Replace("\\", "/");
+                            existContent.Files.FileHtml = "/courses/" + Path.Combine(sectionDirectory, content.ContentName + type == "geogebra" ? "_geogebra" : ""+ ".html").Replace("\\", "/");
                         }
-                        else if (filePath.EndsWith("_base64.txt"))
+                        else if (filePath.EndsWith(".txt"))
                         {
-                            existContent.Files.FileTxt = Path.Combine(sectionDirectory, content.ContentName + "_base64.txt").Replace("\\", "/").ToString();
+                            existContent.Files.FileTxt = "/courses/" + Path.Combine(sectionDirectory, content.ContentName + type == "geogebra" ? "_geogebra" : "" + ".txt").Replace("\\", "/").ToString();
                         }
                     }
 

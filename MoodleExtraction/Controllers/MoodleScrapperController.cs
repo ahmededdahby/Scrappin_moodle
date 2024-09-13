@@ -18,6 +18,7 @@ using System.ComponentModel;
 using Microsoft.Azure.Cosmos;
 using HtmlAgilityPack;
 using static System.Collections.Specialized.BitVector32;
+using Microsoft.Azure.Cosmos.Scripts;
 
 namespace MoodleExtraction.Controllers
 {
@@ -116,7 +117,7 @@ namespace MoodleExtraction.Controllers
                         }
                     }
 
-                    foreach (var course in courses.Skip(1))
+                    foreach (var course in courses)
                     {
                         try
                         {
@@ -358,11 +359,11 @@ namespace MoodleExtraction.Controllers
             {
 
                 await DownloadPageContent(driver, "", sectionDirectory, sectionName);
-
+               
                 // No li elements found, skip to the next section
             }
-            //else
-            //   await DownloadDescriptionContent(driver, sectionDirectory, "Description");
+            else
+               await DownloadDescriptionContent(driver, sectionDirectory, "Description");
 
             foreach (var section in sectionElements)
             {
@@ -604,11 +605,28 @@ namespace MoodleExtraction.Controllers
                 Directory.CreateDirectory(stylesDirectory);
                 Directory.CreateDirectory(imagesDirectory);
 
-                pageHtml = await DownloadAndReplaceResources(driver, pageHtml, scriptsDirectory, stylesDirectory, imagesDirectory);
+                string wwwRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+
+
+                string bootstrapCssPath = Path.Combine(wwwRootPath, "css", "bootstrap.min.css");
+                string destinationCssPath = Path.Combine(stylesDirectory, "bootstrap.min.css");
+                System.IO.File.Copy(bootstrapCssPath, destinationCssPath, true); // Copy and overwrite if exists
+
+
+                string[] jsFiles = { "bootstrap.bundle.min.js" };
+                foreach (var jsFile in jsFiles)
+                {
+                    string sourceJsPath = Path.Combine(wwwRootPath, "js", jsFile);
+                    string destinationJsPath = Path.Combine(scriptsDirectory, jsFile);
+                    System.IO.File.Copy(sourceJsPath, destinationJsPath, true); // Copy and overwrite if exists
+                }
+
+
+
 
                 // Step 2: Extract HTML content from the main div
                 string mainContentHtml = "";
-
+                string head = "";
                 if (pageUrl == "")
                 {
                     try
@@ -624,7 +642,7 @@ namespace MoodleExtraction.Controllers
                         if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
                         {
                             // Extract the content between the <head> and </head> tags
-                            pageHtml = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
+                            head = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
                         }
                         else
                         {
@@ -648,9 +666,46 @@ namespace MoodleExtraction.Controllers
                     mainContentHtml = mainDiv.GetAttribute("outerHTML");
                 }
 
+                string bootstrapCssLink = $"<link rel=\"stylesheet\" href=\"{Path.Combine("styles", "bootstrap.min.css")+"?"+SasToken}\">";
+                head += bootstrapCssLink;
+
 
                 // Add meta charset tag and combine the modified HTML content with the main content
-                pageHtml = "<html><head><meta charset=\"UTF-8\">" + pageHtml + "</head><body>" + mainContentHtml + "</body></html>";
+                pageHtml = "<html><head><meta charset=\"UTF-8\">" + head + "</head><body>" + mainContentHtml + "</body></html>";
+
+                pageHtml = Regex.Replace(pageHtml, @"<div[^>]*class=['""][^'""]*theme-coursenav[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+                string bootstrapJsLinks = @$"<script src='{Path.Combine("scripts", "bootstrap.bundle.min.js") + "?" + SasToken}'></script>";
+
+                pageHtml += bootstrapJsLinks + "</body></html>";
+
+
+
+                pageHtml = pageHtml.Replace("data-toggle", "data-bs-toggle")
+                       .Replace("data-target", "data-bs-target")
+                       .Replace("data-dismiss", "data-bs-dismiss");
+
+                // Use Regex to find all content inside the modal-dialog elements
+                Regex modalDialogRegex = new Regex(@"<div\s+class=['""]modal-dialog['""].*?>.*?</div>\s*</div>", RegexOptions.Singleline);
+                MatchCollection modalDialogMatches = modalDialogRegex.Matches(pageHtml);
+
+                // Iterate through each match and replace href attributes within the matched content
+                foreach (Match match in modalDialogMatches)
+                {
+                    string modalContent = match.Value;
+
+                    // Replace all hrefs with '#' inside the modal-dialog content
+                    string updatedModalContent = Regex.Replace(modalContent, @"href=""[^""]*""", "href=\"#\"");
+
+                    // Replace the old modal-dialog content with the updated content in the main HTML
+                    pageHtml = pageHtml.Replace(modalContent, updatedModalContent);
+                }
+
+
+
+
+
+                pageHtml = await DownloadAndReplaceResources(driver, pageHtml, scriptsDirectory, stylesDirectory, imagesDirectory);
 
                 // Step 3: Download media files
                 //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
@@ -681,9 +736,8 @@ namespace MoodleExtraction.Controllers
 
         private async Task DownloadDescriptionContent(IWebDriver driver, string sectionDirectory, string activityName)
         {
-            try
-            {
                 string mainContentHtml = "";
+                string pageHtml = driver.PageSource;
 
                 try
                 {
@@ -694,91 +748,41 @@ namespace MoodleExtraction.Controllers
                     if (string.IsNullOrEmpty(mainDivContent))
                     {
                         Console.WriteLine("The <div class=\"summary\"></div> is empty, returning.");
-                        return; // Exit the method or loop since the div has no content
-                    }
-
-
-                    mainContentHtml = mainDiv.GetAttribute("outerHTML");
-                }
-                catch (NoSuchElementException)
-                {
-                    // Log or handle the case where .summary is not found
-                    Console.WriteLine(".summary element not found, proceeding with head extraction.");
-                    return;
-                }
-
-                // Step 1: Extract JS and CSS files
-                string pageHtml = driver.PageSource;
-
-                // Remove unwanted HTML elements
-                pageHtml = RemoveUnwantedHtmlElements(pageHtml);
-                string scriptsDirectory = Path.Combine(sectionDirectory, "scripts");
-                string stylesDirectory = Path.Combine(sectionDirectory, "styles");
-                string imagesDirectory = Path.Combine(sectionDirectory, "images");
-
-                Directory.CreateDirectory(scriptsDirectory);
-                Directory.CreateDirectory(stylesDirectory);
-                Directory.CreateDirectory(imagesDirectory);
-
-                pageHtml = await DownloadAndReplaceResources(driver, pageHtml, scriptsDirectory, stylesDirectory, imagesDirectory);
-
-                // Step 2: Extract HTML content from the main div
-
-
-                try
-                {
-                    // Attempt to find the summary element
-                    var mainDiv = driver.FindElement(By.CssSelector("div.format_tiles_section_content .summary"));
-                    mainContentHtml = mainDiv.GetAttribute("outerHTML");
-                }
-                catch (NoSuchElementException)
-                {
-                    // Log or handle the case where .summary is not found
-                    Console.WriteLine(".summary element not found, proceeding with head extraction.");
-                }
-
-                try
-                {
-                    // Extract the <head> section from pageHtml
-                    int headStartIndex = pageHtml.IndexOf("<head");  // Find the start of the <head> tag
-                    int headEndTagIndex = pageHtml.IndexOf(">", headStartIndex);  // Find the end of the opening <head> tag
-                    int headCloseTagIndex = pageHtml.IndexOf("</head>");  // Find the closing </head> tag
-
-                    if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
-                    {
-                        // Extract the content between the <head> and </head> tags
-                        pageHtml = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
+                        // Exit the method or loop since the div has no content
                     }
                     else
                     {
-                        Console.WriteLine("Head tag not found in the HTML document.");
+                        mainContentHtml = mainDiv.GetAttribute("outerHTML");
+                        //// Extract the <head> section from pageHtml
+                        //int headStartIndex = pageHtml.IndexOf("<head");  // Find the start of the <head> tag
+                        //int headEndTagIndex = pageHtml.IndexOf(">", headStartIndex);  // Find the end of the opening <head> tag
+                        //int headCloseTagIndex = pageHtml.IndexOf("</head>");  // Find the closing </head> tag
+
+                        //if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
+                        //{
+                        //    // Extract the content between the <head> and </head> tags
+                        //    pageHtml = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
+                        //}
+                        //else
+                        //{
+                        //    Console.WriteLine("Head tag not found in the HTML document.");
+                        //}
+
+                        // Add meta charset tag and combine the modified HTML content with the main content
+                        pageHtml = "<html><head><meta charset=\"UTF-8\"></head><body>" + mainContentHtml + "</body></html>";
+
+                        // Save the final HTML content to a file
+                        string pageFilePath = Path.Combine(sectionDirectory, $"{activityName}.html");
+                        await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
+                    
                     }
+                   
                 }
-                catch (Exception ex)
+                catch (NoSuchElementException)
                 {
-                    Console.WriteLine($"An error occurred while extracting the head: {ex.Message}");
+                    // Log or handle the case where .summary is not found
+                    Console.WriteLine(".summary element not found, proceeding with head extraction.");
                 }
-
-
-                // Add meta charset tag and combine the modified HTML content with the main content
-                pageHtml = "<html><head><meta charset=\"UTF-8\">" + pageHtml + "</head><body>" + mainContentHtml + "</body></html>";
-
-                // Step 3: Download media files
-                //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
-                pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);
-
-                // Save the final HTML content to a file
-                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName}.html");
-                await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
-
-
-
-            }
-            catch (Exception ex)
-            {
-
-                throw ex;
-            }
 
         }
 
@@ -1120,6 +1124,10 @@ namespace MoodleExtraction.Controllers
 
                 // Remove unwanted HTML elements
                 testPageHtml = RemoveUnwantedHtmlElements(testPageHtml);
+
+                testPageHtml = Regex.Replace(testPageHtml, @"<div[^>]*class=['""][^'""]*theme-coursenav[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+
                 // Create directories for scripts, styles, and images
                 string scriptsDirectory = Path.Combine(sectionDirectory, "scripts");
                 string stylesDirectory = Path.Combine(sectionDirectory, "styles");
@@ -1713,19 +1721,20 @@ namespace MoodleExtraction.Controllers
                                           file.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
                                           file.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
                                           file.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))?.Replace("\\", "/");
-            string description = photoAbsolutePath?.Split('/')[1] ?? "";
             string? photoRelativePath = photoAbsolutePath != null ? Path.GetRelativePath(courseDirectory, photoAbsolutePath).Replace("\\", "/") : null;
+
+            string description = photoAbsolutePath?.Split('/')[1] ?? "";
 
             var courseJson = new CourseJson
             {
                 CourseName = courseName,
-                Description = description,
                 CourseId = courseId,
                 Photo = "/courses/" + photoAbsolutePath, // Use the first found image path
                 //ProfessorId = "dfe910f4-c065-46cd-b23c-265ddc85a8ed", // Static for now
                 CodeNiveau = "2A32101010", // Static for now
                 //CodeClasse = "9210d27e-ec40-4568-9fbe-40146f9f1c2f", // Static for now
                 ElementProgrammes = elementProgrammes,
+                Description = description,
                 Elements = new List<Element>(),
                 id = courseId // Add the 'id' property for Cosmos DB
             };
@@ -1753,8 +1762,13 @@ namespace MoodleExtraction.Controllers
                     IconBody = "<i class=\"ki-duotone text-primary ki-book-open fs-3x\"><span class=\"path1\"></span><span class=\"path2\"></span><span class=\"path3\"></span><span class=\"path4\"></span></i>",
                     Link = $"/courses/{courseName}/{SanitizeFileName(sectionName)}",
                     IsDownloaded = false,
-                    contents = new List<Content>()
+                    contents = new List<Content>(),
+                    FileDescription=""
                 };
+
+               
+
+
 
                 // Recursively add H5P contents
                 var h5pfound = AddH5PContentsRecursively(sectionDirectory, sectionElement, courseName, sectionName);
@@ -1793,7 +1807,12 @@ namespace MoodleExtraction.Controllers
 
                     var existContent = sectionElement.contents.Find(x => x.ContentName == sanitizedFileNamePart);
 
-                    
+                    if (filePath.EndsWith("Description.html"))
+                    {
+                        if(sectionElement.FileDescription == "")
+                            sectionElement.FileDescription = "/courses/" + relativeFilePath;
+                        continue;
+                    }
 
 
                     if (existContent == null)
@@ -1803,6 +1822,7 @@ namespace MoodleExtraction.Controllers
                             ContentName = sanitizedFileNamePart,
                             Files = new FilesModel()
                         };
+                       
                         if (filePath.EndsWith(".html") && type != "geogebra")
                         {
                             content.Type = "html";
@@ -1840,13 +1860,14 @@ namespace MoodleExtraction.Controllers
                     }
                     else if (existContent != null && existContent.Files != null)
                     {
+                        
                         if (filePath.EndsWith(".html"))
                         {
-                            existContent.Files.FileHtml = "/courses/" + Path.Combine(sectionDirectory, content.ContentName + type == "geogebra" ? "_geogebra" : ""+ ".html").Replace("\\", "/");
+                            existContent.Files.FileHtml = "/courses/" + Path.Combine(sectionDirectory, content.ContentName + (type == "geogebra" ? "_geogebra.html" : ".html")).Replace("\\", "/");
                         }
                         else if (filePath.EndsWith(".txt"))
                         {
-                            existContent.Files.FileTxt = "/courses/" + Path.Combine(sectionDirectory, content.ContentName + type == "geogebra" ? "_geogebra" : "" + ".txt").Replace("\\", "/").ToString();
+                            existContent.Files.FileTxt = "/courses/" + Path.Combine(sectionDirectory, content.ContentName + (type == "geogebra" ? "_geogebra.txt" : ".txt")).Replace("\\", "/").ToString();
                         }
                     }
 

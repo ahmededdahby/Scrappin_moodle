@@ -252,6 +252,7 @@ namespace MoodleExtraction.Controllers
                     var activityLinkElement = tileLi.FindElement(By.CssSelector("a.tile-link"));
                     string sectionActivityUrl = activityLinkElement.GetAttribute("href");
 
+                    
                     // Scrape activity and images in course content
                     await ScrapeActivity(driver, sectionActivityUrl, sectionById, sectionDirectory, sectionName);
 
@@ -322,15 +323,17 @@ namespace MoodleExtraction.Controllers
             await Task.Delay(2000); // Wait for any additional loading
 
             // Try to locate elements, handling stale element reference exceptions
-            List<IWebElement> sectionElements = new List<IWebElement>();
             bool elementsFound = false;
             int attempts = 0;
 
             // Retry finding elements up to 3 times in case of a stale element
+            List<(string Id, IWebElement License)> sectionElements = new List<(string Id, IWebElement License)>();
+
             while (!elementsFound && attempts < 3)
             {
                 try
                 {
+                    // Locate the section element by ID
                     var section = driver.FindElement(By.Id(sectionId));
                     var sec = section.FindElement(By.CssSelector("div.format_tiles_section_content"));
 
@@ -347,7 +350,12 @@ namespace MoodleExtraction.Controllers
 
                     // Find the first <ul> element within the located div
                     var ulElement = sec.FindElement(By.CssSelector("ul.section.img-text.nosubtiles"));
-                    sectionElements = ulElement.FindElements(By.TagName("li"))?.ToList();
+
+                    // Find all <li> elements and store their IDs and references in a list
+                    sectionElements = ulElement.FindElements(By.TagName("li"))
+                        ?.Select(x => (Id: x.GetAttribute("id"), li: x))
+                        .ToList();
+
                     elementsFound = true;
                 }
                 catch (StaleElementReferenceException)
@@ -368,19 +376,18 @@ namespace MoodleExtraction.Controllers
 
             int i = 0;
 
+
+
             for (int j = 0; j < sectionElements.Count; j++)
             {
-                var section = sectionElements[j]; // Get the element from the list
 
-               
-                    // Re-locate section element before interacting
-                    section = driver.FindElement(By.Id(section.GetAttribute("id"))); // Find the most current element reference
+                   var section = driver.FindElement(By.Id(sectionElements[j].Id)); // Find the most current element reference
 
                     try
                     {
-                        var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
-                        var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
-                        string type = typeElement.Text.Trim();
+                       var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
+                       var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
+                       string type = typeElement.Text.Trim();
                         var nameText = nameElement.Text;
 
                         // Handle hidden span elements
@@ -418,7 +425,11 @@ namespace MoodleExtraction.Controllers
                                 break;
                             case "PAGE":
                                 await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                                break;
+                            driver.Navigate().GoToUrl(activityUrl);
+                            // Wait for the section to be visible
+                            WebDriverWait wait_ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+                            wait_.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));
+                            break;
                         }
                     }
                     catch (NoSuchElementException ex)
@@ -479,12 +490,7 @@ namespace MoodleExtraction.Controllers
                             Console.WriteLine($"Unexpected error: {ex.Message}");
                         }
 
-
-
             }
-
-
-
 
         }
         private async Task DownloadMediaContent(IWebDriver driver, IWebElement section, string sectionDirectory)

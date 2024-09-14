@@ -19,6 +19,7 @@ using Microsoft.Azure.Cosmos;
 using HtmlAgilityPack;
 using static System.Collections.Specialized.BitVector32;
 using Microsoft.Azure.Cosmos.Scripts;
+using System.Reflection.Emit;
 
 namespace MoodleExtraction.Controllers
 {
@@ -117,7 +118,7 @@ namespace MoodleExtraction.Controllers
                         }
                     }
 
-                    foreach (var course in courses)
+                    foreach (var course in courses.Skip(1))
                     {
                         try
                         {
@@ -370,10 +371,20 @@ namespace MoodleExtraction.Controllers
                 try
                 {
                     // Existing code to handle other types like TEST, H5P, GEOGEBRA, etc.
-                    string dataModType = section.GetAttribute("data-modtype");
-                    string dataTitle = section.GetAttribute("data-title");
-                    var element = section.FindElement(By.CssSelector("div.activityname a"));
-                    string sectionActivityUrl = element.GetAttribute("href");
+                    string dataModType = string.Empty;
+                    string dataTitle = string.Empty;
+
+                    try
+                    {
+                        // Try to get the attributes
+                        dataModType = section.GetAttribute("data-modtype");
+                        dataTitle = section.GetAttribute("data-title");
+                    }
+                    catch (OpenQA.Selenium.StaleElementReferenceException)
+                    {
+                        // Log the exception or handle it if needed
+                        Console.WriteLine("StaleElementReferenceException occurred. Skipping attribute retrieval.");
+                    }
 
                     if (dataModType == "feedback") continue;
 
@@ -396,6 +407,8 @@ namespace MoodleExtraction.Controllers
                     string type = typeElement.Text.Trim();
                     var nameText = nameElement.Text;
                     var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
+                    var element = section.FindElement(By.CssSelector("div.activityname a"));
+                    string sectionActivityUrl = element.GetAttribute("href");
 
                     // If the element exists, remove its text from nameText
                     if (hiddenSpanElements.Count > 0)
@@ -810,12 +823,14 @@ namespace MoodleExtraction.Controllers
                 pageHtml = await DownloadAndReplaceImages(driver, pageHtml, imagesDirectory);
                 // Remove all button elements from pageHtml
                 pageHtml = Regex.Replace(pageHtml, @"<button\b[^>]*>(.*?)<\/button>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-                
+
+                pageHtml = Regex.Replace(pageHtml, @"<img\b([^>]*)>", "<img$1 style=\"width:100%; height:auto;\">", RegexOptions.IgnoreCase);
+
                 //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
                 pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);
 
                 // Save the final HTML content to a file
-                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName+ "-"+order}.html");
+                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName+ "_"+order+"_label"}.html");
                 await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
 
             }
@@ -1306,7 +1321,7 @@ namespace MoodleExtraction.Controllers
             await Task.Delay(2000); // Wait for the page to load
           }
 
-            private async Task DownloadH5PContent(IWebDriver driver, string h5pUrl, string sectionDirectory, string activityName)
+        private async Task DownloadH5PContent(IWebDriver driver, string h5pUrl, string sectionDirectory, string activityName)
         {
             // Open a new tab and switch to it
             ((IJavaScriptExecutor)driver).ExecuteScript("window.open();");
@@ -1323,43 +1338,79 @@ namespace MoodleExtraction.Controllers
 
             foreach (var scriptElement in scriptElements)
             {
-                var scriptText = scriptElement.GetAttribute("innerHTML");
-                if (scriptText.Contains("var H5PIntegration = "))
+                try
                 {
-                    string startPattern = "\r\n//<![CDATA[\r\nvar H5PIntegration = ";
-                    string endPattern = ";\r\n//]]>";
-
-                    int startIndex = scriptText.IndexOf(startPattern) + startPattern.Length;
-                    int endIndex = scriptText.IndexOf(endPattern, startIndex);
-                    string jsonSubstring = scriptText.Substring(startIndex, endIndex - startIndex).Trim();
-
-                    // Deserialize JSON substring into JsonNode
-                    JsonNode jsonObject = JsonNode.Parse(jsonSubstring);
-                    FindExportUrls(jsonObject["contents"], exportUrls);
-
-                    string exportUrl = exportUrls[0];
-
-                  
-
-                    if (!string.IsNullOrEmpty(exportUrl))
+                    var scriptText = scriptElement.GetAttribute("innerHTML");
+                    if (scriptText.Contains("var H5PIntegration = "))
                     {
-                        // Define the new H5P folder structure
-                        //string h5pRootDirectory = Path.Combine("H5P", SanitizeFileName(activityName));
-                        //Directory.CreateDirectory(h5pRootDirectory);
+                        string startPattern = "\r\n//<![CDATA[\r\nvar H5PIntegration = ";
+                        string endPattern = ";\r\n//]]>";
 
-                        // Download the file from the export URL using the authenticated session
-                        string h5pFilePath = await DownloadFileFromUrlWithCookies(driver, exportUrl, sectionDirectory);
+                        int startIndex = scriptText.IndexOf(startPattern);
 
-                        // Unzip the .h5p file into the H5P directory
-                        if (!string.IsNullOrEmpty(h5pFilePath) && System.IO.File.Exists(h5pFilePath))
+                        if (startIndex != -1)
                         {
-                            UnzipH5PFile(h5pFilePath, sectionDirectory);
-                            // Optionally delete the original .h5p file after extraction
-                            System.IO.File.Delete(h5pFilePath);
+                            startIndex += startPattern.Length; // Move past the start pattern
+
+                            // Find the next semicolon after startIndex
+                            int endIndex = scriptText.IndexOf(endPattern, startIndex);
+
+                            if (endIndex != -1)
+                            {
+                                // Extract the JSON substring
+                                string jsonSubstring = scriptText.Substring(startIndex, endIndex - startIndex).Trim();
+
+                                try
+                                {
+                                    // Deserialize JSON substring into JsonNode
+                                    JsonNode jsonObject = JsonNode.Parse(jsonSubstring);
+                                    FindExportUrls(jsonObject["contents"], exportUrls);
+
+                                    if (exportUrls.Count > 0)
+                                    {
+                                        string exportUrl = exportUrls[0];
+                                        if (!string.IsNullOrEmpty(exportUrl))
+                                        {
+                                            // Define the new H5P folder structure
+                                            //string h5pRootDirectory = Path.Combine("H5P", SanitizeFileName(activityName));
+                                            //Directory.CreateDirectory(h5pRootDirectory);
+
+                                            // Download the file from the export URL using the authenticated session
+                                            string h5pFilePath = await DownloadFileFromUrlWithCookies(driver, exportUrl, sectionDirectory);
+
+                                            // Unzip the .h5p file into the H5P directory
+                                            if (!string.IsNullOrEmpty(h5pFilePath) && System.IO.File.Exists(h5pFilePath))
+                                            {
+                                                UnzipH5PFile(h5pFilePath, sectionDirectory);
+                                                // Optionally delete the original .h5p file after extraction
+                                                System.IO.File.Delete(h5pFilePath);
+                                            }
+                                        }
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    Console.WriteLine("Error parsing JSON: " + ex.Message);
+                                }
+                            }
+                            else
+                            {
+                                Console.WriteLine("End pattern not found.");
+                            }
                         }
+                        else
+                        {
+                            Console.WriteLine("Start pattern not found.");
+                        }
+
+                        break;
                     }
 
-                    break;
+                }
+                catch (Exception ex)
+                {
+
+                    continue;
                 }
             }
 
@@ -1905,17 +1956,14 @@ namespace MoodleExtraction.Controllers
                 };
 
                
-
-
-
                 // Recursively add H5P contents
                 var h5pfound = AddH5PContentsRecursively(sectionDirectory, sectionElement, courseName, sectionName);
-                if (h5pfound)
-                {
-                    courseJson.Elements.Add(sectionElement);
-                    elementId++;
-                    continue;
-                }
+                //if (h5pfound)
+                //{
+                //    courseJson.Elements.Add(sectionElement);
+                //    elementId++;
+                //    continue;
+                //}
 
                 var content = new Content
                 {
@@ -1960,8 +2008,20 @@ namespace MoodleExtraction.Controllers
                             ContentName = sanitizedFileNamePart,
                             Files = new FilesModel()
                         };
-                       
-                        if (filePath.EndsWith(".html") && type != "geogebra")
+
+                        if (filePath.EndsWith(".html") && type == "label")
+                        {
+                            Match match = Regex.Match(sanitizedFileNamePart, @"(\d+)_label");
+                            string order = match.Groups[1].Value;
+                            var contentName_ = Regex.Replace(sanitizedFileNamePart, @"\s*\d+_label", "").Trim();
+                            content.ContentName = Regex.Replace(contentName_, @"_$", "");
+                            content.Type = "label";
+                            content.order = order;
+                            content.Files.FileHtml = "/courses/" + relativeFilePath;
+                        }
+
+
+                       else if (filePath.EndsWith(".html") && type != "geogebra" && type != "label")
                         {
                             content.Type = "html";
                             content.Files.FileHtml = "/courses/" + relativeFilePath;
@@ -1998,8 +2058,21 @@ namespace MoodleExtraction.Controllers
                     }
                     else if (existContent != null && existContent.Files != null)
                     {
-                        
-                        if (filePath.EndsWith(".html"))
+                        if (filePath.EndsWith(".html") && type == "label")
+                        {
+                            content = new Content
+                            {
+                                ContentName = sanitizedFileNamePart,
+                                Files = new FilesModel()
+                            };
+
+                            Match match = Regex.Match(sanitizedFileNamePart, @"(\d+)_label");
+                            string order = match.Groups[1].Value;
+                            content.Type = "label";
+                            content.order = order;
+                            content.Files.FileHtml = "/courses/" + relativeFilePath;
+                        }
+                        else if (filePath.EndsWith(".html"))
                         {
                             existContent.Files.FileHtml = "/courses/" + Path.Combine(sectionDirectory, content.ContentName + (type == "geogebra" ? "_geogebra.html" : ".html")).Replace("\\", "/");
                         }

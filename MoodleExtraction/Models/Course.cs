@@ -41,6 +41,7 @@ public class Content
     public string? Type { get; set; }
     public string? Width { get; set; }
     public string? Height { get; set; }
+    public string? order { get; set; }
     public FilesModel? Files { get; set; }
 }
 

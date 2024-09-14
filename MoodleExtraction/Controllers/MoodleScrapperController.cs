@@ -118,7 +118,7 @@ namespace MoodleExtraction.Controllers
                         }
                     }
 
-                    foreach (var course in courses.Skip(1))
+                    foreach (var course in courses)
                     {
                         try
                         {
@@ -326,6 +326,7 @@ namespace MoodleExtraction.Controllers
             bool elementsFound = false;
             int attempts = 0;
 
+            // Retry finding elements up to 3 times in case of a stale element
             while (!elementsFound && attempts < 3)
             {
                 try
@@ -358,105 +359,133 @@ namespace MoodleExtraction.Controllers
 
             if (sectionElements.Count == 0)
             {
-
                 await DownloadPageContent(driver, "", sectionDirectory, sectionName);
-               
-                // No li elements found, skip to the next section
             }
             else
-               await DownloadDescriptionContent(driver, sectionDirectory, "Description");
-            int i = 0;
-            foreach (var section in sectionElements)
             {
-                try
-                {
-                    // Existing code to handle other types like TEST, H5P, GEOGEBRA, etc.
+                await DownloadDescriptionContent(driver, sectionDirectory, "Description");
+            }
+
+            int i = 0;
+
+            for (int j = 0; j < sectionElements.Count; j++)
+            {
+                var section = sectionElements[j]; // Get the element from the list
+
+               
+                    // Re-locate section element before interacting
+                    section = driver.FindElement(By.Id(section.GetAttribute("id"))); // Find the most current element reference
+
+                    try
+                    {
+                        var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
+                        var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
+                        string type = typeElement.Text.Trim();
+                        var nameText = nameElement.Text;
+
+                        // Handle hidden span elements
+                        var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
+                        if (hiddenSpanElements.Count > 0)
+                        {
+                            var hiddenText = hiddenSpanElements[0].Text;
+                            nameText = nameText.Replace(hiddenText, "").Trim();
+                        }
+
+                        string activityName = SanitizeFileName(nameText);
+                        var element = section.FindElement(By.CssSelector("div.activityname a"));
+                        string sectionActivityUrl = element.GetAttribute("href");
+
+                        // Download content based on type
+                        switch (type)
+                        {
+                            case "TEST":
+                                await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                                break;
+                            case "H5P":
+                                await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                                break;
+                            case "GEOGEBRA":
+                                await DownloadGeoGebraContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                                break;
+                            case "FICHIER":
+                                var activityContainerElement = section.FindElement(By.CssSelector("div.tiles-activity-container"));
+                                string dataUrl = activityContainerElement.GetAttribute("data-url");
+
+                                if (!string.IsNullOrEmpty(dataUrl))
+                                {
+                                    await DownloadPdfFile(driver, dataUrl, sectionDirectory);
+                                }
+                                break;
+                            case "PAGE":
+                                await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                                break;
+                        }
+                    }
+                    catch (NoSuchElementException ex)
+                    {
+                        Console.WriteLine($"NoSuchElementException: {ex.Message}");
+                    }
+                    catch (StaleElementReferenceException ex)
+                    {
+                        Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Unexpected error: {ex.Message}");
+                    }
+
+                    // Handle attributes and different dataModTypes
                     string dataModType = string.Empty;
                     string dataTitle = string.Empty;
 
                     try
                     {
-                        // Try to get the attributes
+                        // Re-locate element before accessing attributes
                         dataModType = section.GetAttribute("data-modtype");
                         dataTitle = section.GetAttribute("data-title");
-                    }
-                    catch (OpenQA.Selenium.StaleElementReferenceException)
-                    {
-                        // Log the exception or handle it if needed
-                        Console.WriteLine("StaleElementReferenceException occurred. Skipping attribute retrieval.");
-                    }
 
-                    if (dataModType == "feedback") continue;
+                        // Handle various dataModTypes
+                        if (dataModType == "feedback") continue;
 
-                    if (dataModType == "scorm")
-                    {
-                       // await DownloadScormContent(driver, sectionActivityUrl, sectionDirectory, dataTitle);
-                        continue;
-                    }
-
-                    if (dataModType == "label")
-                    {
-                        i++;
-                        await DownloadLabelContent(driver, sectionDirectory, dataTitle, i);
-                        continue;
-                    }
-                    else i = 0;
-
-                    var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
-                    var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
-                    string type = typeElement.Text.Trim();
-                    var nameText = nameElement.Text;
-                    var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
-                    var element = section.FindElement(By.CssSelector("div.activityname a"));
-                    string sectionActivityUrl = element.GetAttribute("href");
-
-                    // If the element exists, remove its text from nameText
-                    if (hiddenSpanElements.Count > 0)
-                    {
-                        var hiddenText = hiddenSpanElements[0].Text;
-                        nameText = nameText.Replace(hiddenText, "").Trim();
-                    }
-
-
-                    string activityName = SanitizeFileName(nameText);
-                    
-
-                    if (type == "TEST")
-                    {
-                        await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                    }
-                    else if (type == "H5P")
-                    {
-                        await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                    }
-                    else if (type == "GEOGEBRA")
-                    {
-                        await DownloadGeoGebraContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                    }
-                    else if (type == "FICHIER")
-                    {
-                        var activityContainerElement = section.FindElement(By.CssSelector("div.tiles-activity-container"));
-                        string dataUrl = activityContainerElement.GetAttribute("data-url");
-
-                        if (!string.IsNullOrEmpty(dataUrl))
+                        if (dataModType == "scorm")
                         {
-                            await DownloadPdfFile(driver, dataUrl, sectionDirectory);
+                            // await DownloadScormContent(driver, sectionActivityUrl, sectionDirectory, dataTitle);
+                            continue;
                         }
+
+                        if (dataModType == "label")
+                        {
+                            i++;
+                            await DownloadLabelContent(driver, sectionDirectory, dataTitle, i);
+                            continue;
+                        }
+                        else
+                        {
+                            i = 0;
+                        }
+
+
                     }
-                    else if (type == "PAGE")
-                    {
-                        await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                    }
-                }
-                catch (NoSuchElementException)
-                {
-                    continue;
-                }
-                catch (StaleElementReferenceException)
-                {
-                    continue;
-                }
+                        catch (NoSuchElementException ex)
+                        {
+                            Console.WriteLine($"NoSuchElementException: {ex.Message}");
+                        }
+                        catch (StaleElementReferenceException ex)
+                        {
+                            Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Unexpected error: {ex.Message}");
+                        }
+
+
+
             }
+
+
+
+
         }
         private async Task DownloadMediaContent(IWebDriver driver, IWebElement section, string sectionDirectory)
         {
@@ -1329,7 +1358,7 @@ namespace MoodleExtraction.Controllers
 
             // Navigate to the H5P content URL in the new tab
             driver.Navigate().GoToUrl(h5pUrl);
-            await Task.Delay(2000); // Wait for the page to load
+            await Task.Delay(3000); // Wait for the page to load
 
             var exportUrls = new List<string>();
 

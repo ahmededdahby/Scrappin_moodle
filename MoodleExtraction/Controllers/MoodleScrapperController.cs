@@ -364,12 +364,33 @@ namespace MoodleExtraction.Controllers
             }
             else
                await DownloadDescriptionContent(driver, sectionDirectory, "Description");
-
+            int i = 0;
             foreach (var section in sectionElements)
             {
                 try
                 {
                     // Existing code to handle other types like TEST, H5P, GEOGEBRA, etc.
+                    string dataModType = section.GetAttribute("data-modtype");
+                    string dataTitle = section.GetAttribute("data-title");
+                    var element = section.FindElement(By.CssSelector("div.activityname a"));
+                    string sectionActivityUrl = element.GetAttribute("href");
+
+                    if (dataModType == "feedback") continue;
+
+                    if (dataModType == "scorm")
+                    {
+                       // await DownloadScormContent(driver, sectionActivityUrl, sectionDirectory, dataTitle);
+                        continue;
+                    }
+
+                    if (dataModType == "label")
+                    {
+                        i++;
+                        await DownloadLabelContent(driver, sectionDirectory, dataTitle, i);
+                        continue;
+                    }
+                    else i = 0;
+
                     var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
                     var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
                     string type = typeElement.Text.Trim();
@@ -385,8 +406,7 @@ namespace MoodleExtraction.Controllers
 
 
                     string activityName = SanitizeFileName(nameText);
-                    var element = section.FindElement(By.CssSelector("div.activityname a"));
-                    string sectionActivityUrl = element.GetAttribute("href");
+                    
 
                     if (type == "TEST")
                     {
@@ -666,7 +686,7 @@ namespace MoodleExtraction.Controllers
                     mainContentHtml = mainDiv.GetAttribute("outerHTML");
                 }
 
-                string bootstrapCssLink = $"<link rel=\"stylesheet\" href=\"{Path.Combine("styles", "bootstrap.min.css")+"?"+SasToken}\">";
+                string bootstrapCssLink = $"<link rel=\"stylesheet\" href=\"{Path.Combine("styles", "bootstrap.min.css") + SasToken}\">";
                 head += bootstrapCssLink;
 
 
@@ -675,7 +695,7 @@ namespace MoodleExtraction.Controllers
 
                 pageHtml = Regex.Replace(pageHtml, @"<div[^>]*class=['""][^'""]*theme-coursenav[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-                string bootstrapJsLinks = @$"<script src='{Path.Combine("scripts", "bootstrap.bundle.min.js") + "?" + SasToken}'></script>";
+                string bootstrapJsLinks = @$"<script src='{Path.Combine("scripts", "bootstrap.bundle.min.js") + SasToken}'></script>";
 
                 pageHtml += bootstrapJsLinks + "</body></html>";
 
@@ -723,6 +743,80 @@ namespace MoodleExtraction.Controllers
                     driver.SwitchTo().Window(driver.WindowHandles.First());
                 }
 
+
+            }
+            catch (Exception ex)
+            {
+
+                throw ex;
+            }
+
+        }
+
+
+
+        private async Task DownloadLabelContent(IWebDriver driver, string sectionDirectory, string activityName, int order)
+        {
+            try
+            {
+                
+                // Step 1: Extract JS and CSS files
+                string pageHtml = driver.PageSource;
+
+                // Remove unwanted HTML elements
+                pageHtml = RemoveUnwantedHtmlElements(pageHtml);
+                string imagesDirectory = Path.Combine(sectionDirectory, "images");
+
+                Directory.CreateDirectory(imagesDirectory);
+
+                // Step 2: Extract HTML content from the main div
+                string mainContentHtml = "";
+                string head = "";
+                    try
+                    {
+
+                    // var mainDiv = driver.FindElement(By.CssSelector($"div.format_tiles_section_content ul li[data-title='{activityName}']"));
+                    var mainDiv = driver.FindElement(By.XPath($"//div[@class='format_tiles_section_content']//ul//li[@data-title=\"{activityName}\"]"));
+
+                    mainContentHtml = mainDiv.GetAttribute("outerHTML");
+
+
+                        int headStartIndex = pageHtml.IndexOf("<head");  // Find the start of the <head> tag
+                        int headEndTagIndex = pageHtml.IndexOf(">", headStartIndex);  // Find the end of the opening <head> tag
+                        int headCloseTagIndex = pageHtml.IndexOf("</head>");  // Find the closing </head> tag
+
+                        if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
+                        {
+                            // Extract the content between the <head> and </head> tags
+                            head = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
+                        }
+                        else
+                        {
+                            Console.WriteLine("Head tag not found in the HTML document.");
+                        }
+
+
+
+                    }
+                    catch (Exception ex)
+                    {
+
+                        throw ex;
+                    }
+
+                // Add meta charset tag and combine the modified HTML content with the main content
+                pageHtml =  mainContentHtml ;
+
+                pageHtml = await DownloadAndReplaceImages(driver, pageHtml, imagesDirectory);
+                // Remove all button elements from pageHtml
+                pageHtml = Regex.Replace(pageHtml, @"<button\b[^>]*>(.*?)<\/button>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                
+                //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
+                pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);
+
+                // Save the final HTML content to a file
+                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName+ "-"+order}.html");
+                await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
 
             }
             catch (Exception ex)
@@ -812,6 +906,10 @@ namespace MoodleExtraction.Controllers
 
             return htmlContent;
         }
+
+      
+
+
         private async Task<string> DownloadAndReplaceImages(IWebDriver driver, string htmlContent, string imagesDirectory)
         {
             var matches = Regex.Matches(htmlContent, @"<img.*?src=[""'](.*?)[""'].*?>", RegexOptions.IgnoreCase);
@@ -1196,7 +1294,19 @@ namespace MoodleExtraction.Controllers
             return document.DocumentNode.OuterHtml;
         }
 
-        private async Task DownloadH5PContent(IWebDriver driver, string h5pUrl, string sectionDirectory, string activityName)
+
+        private async Task DownloadScormContent(IWebDriver driver, string scormpUrl, string sectionDirectory, string activityName)
+        {
+            // Open a new tab and switch to it
+            ((IJavaScriptExecutor)driver).ExecuteScript("window.open();");
+            driver.SwitchTo().Window(driver.WindowHandles.Last());
+
+            // Navigate to the H5P content URL in the new tab
+            driver.Navigate().GoToUrl(scormpUrl);
+            await Task.Delay(2000); // Wait for the page to load
+          }
+
+            private async Task DownloadH5PContent(IWebDriver driver, string h5pUrl, string sectionDirectory, string activityName)
         {
             // Open a new tab and switch to it
             ((IJavaScriptExecutor)driver).ExecuteScript("window.open();");
@@ -1228,6 +1338,8 @@ namespace MoodleExtraction.Controllers
                     FindExportUrls(jsonObject["contents"], exportUrls);
 
                     string exportUrl = exportUrls[0];
+
+                  
 
                     if (!string.IsNullOrEmpty(exportUrl))
                     {
@@ -1347,6 +1459,32 @@ namespace MoodleExtraction.Controllers
                 foreach (var kvp in obj)
                 {
                     if (kvp.Key == "exportUrl" && kvp.Value is JsonValue val)
+                    {
+                        exportUrls.Add(val.ToString());
+                    }
+                    else if (kvp.Value is JsonObject || kvp.Value is JsonArray)
+                    {
+                        FindExportUrls(kvp.Value, exportUrls);
+                    }
+                }
+            }
+            else if (node is JsonArray array)
+            {
+                foreach (var item in array)
+                {
+                    FindExportUrls(item, exportUrls);
+                }
+            }
+        }
+
+
+        private void FindContentUrls(JsonNode node, List<string> exportUrls)
+        {
+            if (node is JsonObject obj)
+            {
+                foreach (var kvp in obj)
+                {
+                    if (kvp.Key == "contentUrl" && kvp.Value is JsonValue val)
                     {
                         exportUrls.Add(val.ToString());
                     }

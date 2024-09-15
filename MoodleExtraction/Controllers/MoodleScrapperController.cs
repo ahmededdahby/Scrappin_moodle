@@ -438,7 +438,7 @@ namespace MoodleExtraction.Controllers
                             break;
                         case "PAGE":
                             await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                            driver.Navigate().GoToUrl(sectionActivityUrl); // Corrected from activityUrl to sectionActivityUrl
+                            driver.Navigate().GoToUrl(activityUrl); // Corrected from activityUrl to sectionActivityUrl
                                                                            // Wait for the section to be visible
                             WebDriverWait wait_ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
                             wait_.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));

@@ -329,7 +329,7 @@ namespace MoodleExtraction.Controllers
             int attempts = 0;
 
             // Retry finding elements up to 3 times in case of a stale element
-            List<(string Id, IWebElement License)> sectionElements = new List<(string Id, IWebElement License)>();
+            List<string> sectionElements = new List<string>();
 
             while (!elementsFound && attempts < 3)
             {
@@ -355,7 +355,7 @@ namespace MoodleExtraction.Controllers
 
                     // Find all <li> elements and store their IDs and references in a list
                     sectionElements = ulElement.FindElements(By.CssSelector("li.activity"))
-                        ?.Select(x => (Id: x.GetAttribute("id"), li: x))
+                        ?.Select(x => x.GetAttribute("id"))
                         .ToList();
 
                     elementsFound = true;
@@ -380,121 +380,132 @@ namespace MoodleExtraction.Controllers
 
 
 
-            for (int j = 0; j < sectionElements.Count; j++)
+            Console.WriteLine($"Total section elements found: {sectionElements?.Count}");
+
+            foreach (var sectionElementId in sectionElements)
             {
-
-                   var section = driver.FindElement(By.Id(sectionElements[j].Id)); // Find the most current element reference
-
-                    try
+                IWebElement section = null ;
+                try
+                {
+                    // Check if the section element is null or has an empty ID
+                    if (sectionElementId == null || string.IsNullOrEmpty(sectionElementId))
                     {
-                       var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
-                       var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
-                       string type = typeElement.Text.Trim();
-                        var nameText = nameElement.Text;
+                        Console.WriteLine("Element is null or has an empty ID.");
+                        continue; // Skip this iteration if the ID is invalid
+                    }
 
-                        // Handle hidden span elements
-                        var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
-                        if (hiddenSpanElements.Count > 0)
-                        {
-                            var hiddenText = hiddenSpanElements[0].Text;
-                            nameText = nameText.Replace(hiddenText, "").Trim();
-                        }
+                    // Re-locate the section element each time to ensure a fresh reference
+                    section = driver.FindElement(By.Id(sectionElementId));
 
-                        string activityName = SanitizeFileName(nameText);
-                        var element = section.FindElement(By.CssSelector("div.activityname a"));
-                        string sectionActivityUrl = element.GetAttribute("href");
+                    // Perform operations with the fresh element
+                    var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
+                    var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
+                    string type = typeElement.Text.Trim();
+                    var nameText = nameElement.Text;
 
-                        // Download content based on type
-                        switch (type)
-                        {
-                            case "TEST":
-                                await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                                break;
-                            case "H5P":
-                                await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                                break;
-                            case "GEOGEBRA":
-                                await DownloadGeoGebraContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                                break;
-                            case "FICHIER":
-                                var activityContainerElement = section.FindElement(By.CssSelector("div.tiles-activity-container"));
-                                string dataUrl = activityContainerElement.GetAttribute("data-url");
+                    // Handle hidden span elements
+                    var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
+                    if (hiddenSpanElements.Count > 0)
+                    {
+                        var hiddenText = hiddenSpanElements[0].Text;
+                        nameText = nameText.Replace(hiddenText, "").Trim();
+                    }
 
-                                if (!string.IsNullOrEmpty(dataUrl))
-                                {
-                                    await DownloadPdfFile(driver, dataUrl, sectionDirectory);
-                                }
-                                break;
-                            case "PAGE":
-                                await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                            driver.Navigate().GoToUrl(activityUrl);
-                            // Wait for the section to be visible
+                    string activityName = SanitizeFileName(nameText);
+                    var element = section.FindElement(By.CssSelector("div.activityname a"));
+                    string sectionActivityUrl = element.GetAttribute("href");
+
+                    // Download content based on type
+                    switch (type)
+                    {
+                        case "TEST":
+                            //await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                            break;
+                        case "H5P":
+                            await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                            break;
+                        case "GEOGEBRA":
+                            await DownloadGeoGebraContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                            break;
+                        case "FICHIER":
+                            var activityContainerElement = section.FindElement(By.CssSelector("div.tiles-activity-container"));
+                            string dataUrl = activityContainerElement.GetAttribute("data-url");
+
+                            if (!string.IsNullOrEmpty(dataUrl))
+                            {
+                                await DownloadPdfFile(driver, dataUrl, sectionDirectory);
+                            }
+                            break;
+                        case "PAGE":
+                            await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                            driver.Navigate().GoToUrl(sectionActivityUrl); // Corrected from activityUrl to sectionActivityUrl
+                                                                           // Wait for the section to be visible
                             WebDriverWait wait_ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
                             wait_.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));
                             break;
-                        }
                     }
-                    catch (NoSuchElementException ex)
-                    {
-                        Console.WriteLine($"NoSuchElementException: {ex.Message}");
-                    }
-                    catch (StaleElementReferenceException ex)
-                    {
-                        Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Unexpected error: {ex.Message}");
-                    }
+                }
+                catch (NoSuchElementException ex)
+                {
+                    Console.WriteLine($"NoSuchElementException: {ex.Message}");
+                }
+                catch (StaleElementReferenceException ex)
+                {
+                    Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
+                    // You might want to refresh the sectionElement reference here if needed
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Unexpected error: {ex.Message}");
+                }
 
-                    // Handle attributes and different dataModTypes
-                    string dataModType = string.Empty;
-                    string dataTitle = string.Empty;
-                    string dataId = string.Empty;
+                // Handle attributes and different dataModTypes
+                string dataModType = string.Empty;
+                string dataTitle = string.Empty;
+                string dataId = string.Empty;
 
-                    try
-                    {
-                        // Re-locate element before accessing attributes
-                        dataModType = section.GetAttribute("data-modtype");
-                        dataTitle = section.GetAttribute("data-title");
-                        dataId = section.GetAttribute("data-id");
+                try
+                {
+                    // Re-locate element before accessing attributes
+                    dataModType = section.GetAttribute("data-modtype");
+                    dataTitle = section.GetAttribute("data-title");
+                    dataId = section.GetAttribute("data-id");
 
                     // Handle various dataModTypes
                     if (dataModType == "feedback") continue;
 
-                        if (dataModType == "scorm")
-                        {
-                            // await DownloadScormContent(driver, sectionActivityUrl, sectionDirectory, dataTitle);
-                            continue;
-                        }
-
-                        if (dataModType == "label")
-                        {
-                            i++;
-                            await DownloadLabelContent(driver, sectionDirectory, dataTitle, i, dataId);
-                            continue;
-                        }
-                        else
-                        {
-                            i = 0;
-                        }
-
-
+                    if (dataModType == "scorm")
+                    {
+                         //await DownloadScormContent(driver, sectionDirectory, sectionDirectory, dataTitle);
+                        continue;
                     }
-                        catch (NoSuchElementException ex)
-                        {
-                            Console.WriteLine($"NoSuchElementException: {ex.Message}");
-                        }
-                        catch (StaleElementReferenceException ex)
-                        {
-                            Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Unexpected error: {ex.Message}");
-                        }
 
+                    if (dataModType == "label")
+                    {
+                         i++;
+                         await DownloadLabelContent(driver, sectionDirectory, dataTitle, i, dataId);
+                        continue;
+                    }
+                    else
+                    {
+                        i = 0;
+                    }
+                }
+                catch (NoSuchElementException ex)
+                {
+                    Console.WriteLine($"NoSuchElementException: {ex.Message}");
+                }
+                catch (StaleElementReferenceException ex)
+                {
+                    Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
+                    // You might want to refresh the sectionElement reference here if needed
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Unexpected error: {ex.Message}");
+                }
             }
+
 
         }
         private async Task DownloadMediaContent(IWebDriver driver, IWebElement section, string sectionDirectory)
@@ -805,27 +816,35 @@ namespace MoodleExtraction.Controllers
 
         }
 
-
-
         private async Task DownloadLabelContent(IWebDriver driver, string sectionDirectory, string activityName, int order, string id)
         {
             try
             {
-                
                 // Step 1: Extract JS and CSS files
                 string pageHtml = driver.PageSource;
 
                 // Remove unwanted HTML elements
                 pageHtml = RemoveUnwantedHtmlElements(pageHtml);
+                string stylesDirectory = Path.Combine(sectionDirectory, "styles");
                 string imagesDirectory = Path.Combine(sectionDirectory, "images");
 
+                Directory.CreateDirectory(stylesDirectory);
                 Directory.CreateDirectory(imagesDirectory);
+
+
+                string wwwRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+
+
+                string bootstrapCssPath = Path.Combine(wwwRootPath, "css", "bootstrap.min.css");
+                string destinationCssPath = Path.Combine(stylesDirectory, "bootstrap.min.css");
+                System.IO.File.Copy(bootstrapCssPath, destinationCssPath, true);
+
 
                 // Step 2: Extract HTML content from the main div
                 string mainContentHtml = "";
                 string head = "";
-                    try
-                    {
+                try
+                {
 
                     // var mainDiv = driver.FindElement(By.CssSelector($"div.format_tiles_section_content ul li[data-title='{activityName}']"));
                     // Remove all newline and carriage return characters from the activityName
@@ -837,31 +856,33 @@ namespace MoodleExtraction.Controllers
                     mainContentHtml = mainDiv.GetAttribute("outerHTML");
 
 
-                        int headStartIndex = pageHtml.IndexOf("<head");  // Find the start of the <head> tag
-                        int headEndTagIndex = pageHtml.IndexOf(">", headStartIndex);  // Find the end of the opening <head> tag
-                        int headCloseTagIndex = pageHtml.IndexOf("</head>");  // Find the closing </head> tag
+                    int headStartIndex = pageHtml.IndexOf("<head");  // Find the start of the <head> tag
+                    int headEndTagIndex = pageHtml.IndexOf(">", headStartIndex);  // Find the end of the opening <head> tag
+                    int headCloseTagIndex = pageHtml.IndexOf("</head>");  // Find the closing </head> tag
 
-                        if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
-                        {
-                            // Extract the content between the <head> and </head> tags
-                            head = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
-                        }
-                        else
-                        {
-                            Console.WriteLine("Head tag not found in the HTML document.");
-                        }
-
-
-
-                    }
-                    catch (Exception ex)
+                    if (headStartIndex != -1 && headEndTagIndex != -1 && headCloseTagIndex != -1)
                     {
-
-                        throw ex;
+                        // Extract the content between the <head> and </head> tags
+                        head = pageHtml.Substring(headStartIndex, (headCloseTagIndex + 7) - headStartIndex);
                     }
+                    else
+                    {
+                        Console.WriteLine("Head tag not found in the HTML document.");
+                    }
+
+
+                }
+                catch (Exception ex)
+                {
+
+                    throw ex;
+                }
+
+                string bootstrapCssLink = $"<link rel=\"stylesheet\" href=\"{Path.Combine("styles", "bootstrap.min.css") + SasToken}\">";
+                head += bootstrapCssLink;
 
                 // Add meta charset tag and combine the modified HTML content with the main content
-                pageHtml =  mainContentHtml ;
+                pageHtml = "<html><head><meta charset=\"UTF-8\">" + head + "</head><body>" + mainContentHtml + "</body></html>";
 
                 pageHtml = await DownloadAndReplaceImages(driver, pageHtml, imagesDirectory);
                 // Remove all button elements from pageHtml
@@ -885,14 +906,18 @@ namespace MoodleExtraction.Controllers
                 );
 
 
-
                 pageHtml = Regex.Replace(pageHtml, @"<a\b([^>]*?)href\s*=\s*(['""])(.*?)\2([^>]*?)>", "<a$1href=\"#\"$4>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
                 //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
                 pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);
 
+                string activityName_ = SanitizeFileName(activityName);
+
+
                 // Save the final HTML content to a file
-                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName+ "_"+order+"_label"}.html");
+                string pageFilePath = Path.Combine(sectionDirectory, $"{activityName_.Replace(" ", "") + "_" + order + "_label"}.html");
+
+
                 await System.IO.File.WriteAllTextAsync(pageFilePath, pageHtml);
 
             }
@@ -903,8 +928,6 @@ namespace MoodleExtraction.Controllers
             }
 
         }
-
-
         private async Task DownloadDescriptionContent(IWebDriver driver, string sectionDirectory, string activityName)
         {
                 string mainContentHtml = "";

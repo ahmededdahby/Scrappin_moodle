@@ -40,6 +40,8 @@ namespace MoodleExtraction.Controllers
         [HttpGet("scrape-category")]
         public async Task<IActionResult> ScrapeCategory(int categoryId)
         {
+//            await ProcessCourseAfterDownload("La tension électrique", "C:\\Users\\HichameAFIFI\\Downloads\\backup scrap\\Le courant électrique continu - Notion de la tension électrique");
+
             try
             {
                 var options = new ChromeOptions();
@@ -352,7 +354,7 @@ namespace MoodleExtraction.Controllers
                     var ulElement = sec.FindElement(By.CssSelector("ul.section.img-text.nosubtiles"));
 
                     // Find all <li> elements and store their IDs and references in a list
-                    sectionElements = ulElement.FindElements(By.TagName("li"))
+                    sectionElements = ulElement.FindElements(By.CssSelector("li.activity"))
                         ?.Select(x => (Id: x.GetAttribute("id"), li: x))
                         .ToList();
 
@@ -448,15 +450,17 @@ namespace MoodleExtraction.Controllers
                     // Handle attributes and different dataModTypes
                     string dataModType = string.Empty;
                     string dataTitle = string.Empty;
+                    string dataId = string.Empty;
 
                     try
                     {
                         // Re-locate element before accessing attributes
                         dataModType = section.GetAttribute("data-modtype");
                         dataTitle = section.GetAttribute("data-title");
+                        dataId = section.GetAttribute("data-id");
 
-                        // Handle various dataModTypes
-                        if (dataModType == "feedback") continue;
+                    // Handle various dataModTypes
+                    if (dataModType == "feedback") continue;
 
                         if (dataModType == "scorm")
                         {
@@ -467,7 +471,7 @@ namespace MoodleExtraction.Controllers
                         if (dataModType == "label")
                         {
                             i++;
-                            await DownloadLabelContent(driver, sectionDirectory, dataTitle, i);
+                            await DownloadLabelContent(driver, sectionDirectory, dataTitle, i, dataId);
                             continue;
                         }
                         else
@@ -803,7 +807,7 @@ namespace MoodleExtraction.Controllers
 
 
 
-        private async Task DownloadLabelContent(IWebDriver driver, string sectionDirectory, string activityName, int order)
+        private async Task DownloadLabelContent(IWebDriver driver, string sectionDirectory, string activityName, int order, string id)
         {
             try
             {
@@ -824,7 +828,11 @@ namespace MoodleExtraction.Controllers
                     {
 
                     // var mainDiv = driver.FindElement(By.CssSelector($"div.format_tiles_section_content ul li[data-title='{activityName}']"));
-                    var mainDiv = driver.FindElement(By.XPath($"//div[@class='format_tiles_section_content']//ul//li[@data-title=\"{activityName}\"]"));
+                    // Remove all newline and carriage return characters from the activityName
+                    activityName = activityName.Replace("\r", "").Replace("\n", "");
+
+                    // Use the cleaned activityName in your XPath
+                    var mainDiv = driver.FindElement(By.XPath($"//div[@class='format_tiles_section_content']//ul//li[@data-id=\"{id}\"]"));
 
                     mainContentHtml = mainDiv.GetAttribute("outerHTML");
 
@@ -859,7 +867,26 @@ namespace MoodleExtraction.Controllers
                 // Remove all button elements from pageHtml
                 pageHtml = Regex.Replace(pageHtml, @"<button\b[^>]*>(.*?)<\/button>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
-                pageHtml = Regex.Replace(pageHtml, @"<img\b([^>]*)>", "<img$1 style=\"width:100%; height:auto;\">", RegexOptions.IgnoreCase);
+                // Match <img> tags with a width attribute
+                // Match <img> tags with a width attribute
+                pageHtml = Regex.Replace(
+                     pageHtml,
+                     @"<img\b([^>]*?)\bwidth\s*=\s*[""'](\d+)[""']([^>]*?)>",
+                     m =>
+                     {
+                         // Extract the width value from the match
+                         int widthValue = int.Parse(m.Groups[2].Value);
+                         // If width is greater than 400, add style width:100%; height:auto; otherwise keep it as is
+                         return widthValue > 800
+                             ? $"<img{m.Groups[1].Value}width=\"{widthValue}\"{m.Groups[3].Value} style=\"width:100%; height:auto;\">"
+                             : m.Value;
+                     },
+                     RegexOptions.IgnoreCase
+                );
+
+
+
+                pageHtml = Regex.Replace(pageHtml, @"<a\b([^>]*?)href\s*=\s*(['""])(.*?)\2([^>]*?)>", "<a$1href=\"#\"$4>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
                 //pageHtml = await DownloadImagesAndUpdatePaths(driver, pageHtml, imagesDirectory);
                 pageHtml = await DownloadVideosAndUpdatePaths(driver, pageHtml, imagesDirectory);

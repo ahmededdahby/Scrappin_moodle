@@ -385,6 +385,8 @@ namespace MoodleExtraction.Controllers
             foreach (var sectionElementId in sectionElements)
             {
                 IWebElement section = null ;
+                section = driver.FindElement(By.Id(sectionElementId));
+
                 try
                 {
                     // Check if the section element is null or has an empty ID
@@ -395,13 +397,14 @@ namespace MoodleExtraction.Controllers
                     }
 
                     // Re-locate the section element each time to ensure a fresh reference
-                    section = driver.FindElement(By.Id(sectionElementId));
 
                     // Perform operations with the fresh element
-                    var typeElement = section.FindElement(By.CssSelector("div.text-uppercase.small"));
-                    var nameElement = section.FindElement(By.CssSelector("div.activityname a span.instancename"));
+                    var typeElement = section?.FindElement(By.CssSelector("div.text-uppercase.small"));
+                    var nameElement = section?.FindElement(By.CssSelector("div.activityname a span.instancename"));
                     string type = typeElement.Text.Trim();
                     var nameText = nameElement.Text;
+
+                    //if (type != "TEST") continue;
 
                     // Handle hidden span elements
                     var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
@@ -412,14 +415,14 @@ namespace MoodleExtraction.Controllers
                     }
 
                     string activityName = SanitizeFileName(nameText);
-                    var element = section.FindElement(By.CssSelector("div.activityname a"));
+                    var element = section?.FindElement(By.CssSelector("div.activityname a"));
                     string sectionActivityUrl = element.GetAttribute("href");
 
                     // Download content based on type
                     switch (type)
                     {
                         case "TEST":
-                            //await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                            await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
                             break;
                         case "H5P":
                             await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
@@ -428,7 +431,7 @@ namespace MoodleExtraction.Controllers
                             await DownloadGeoGebraContent(driver, sectionActivityUrl, sectionDirectory, activityName);
                             break;
                         case "FICHIER":
-                            var activityContainerElement = section.FindElement(By.CssSelector("div.tiles-activity-container"));
+                            var activityContainerElement = section?.FindElement(By.CssSelector("div.tiles-activity-container"));
                             string dataUrl = activityContainerElement.GetAttribute("data-url");
 
                             if (!string.IsNullOrEmpty(dataUrl))
@@ -443,7 +446,15 @@ namespace MoodleExtraction.Controllers
                             WebDriverWait wait_ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
                             wait_.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));
                             break;
+
+
                     }
+                    
+                    if (type == "TEST") continue;
+                    if (type == "H5P") continue;
+                    if (type == "GEOGEBRA") continue;
+                    if (type == "FICHIER") continue;
+
                 }
                 catch (NoSuchElementException ex)
                 {
@@ -459,6 +470,8 @@ namespace MoodleExtraction.Controllers
                     Console.WriteLine($"Unexpected error: {ex.Message}");
                 }
 
+
+
                 // Handle attributes and different dataModTypes
                 string dataModType = string.Empty;
                 string dataTitle = string.Empty;
@@ -466,24 +479,26 @@ namespace MoodleExtraction.Controllers
 
                 try
                 {
+                    //continue;
+
                     // Re-locate element before accessing attributes
-                    dataModType = section.GetAttribute("data-modtype");
-                    dataTitle = section.GetAttribute("data-title");
-                    dataId = section.GetAttribute("data-id");
+                    dataModType = section?.GetAttribute("data-modtype");
+                    dataTitle = section?.GetAttribute("data-title");
+                    dataId = section?.GetAttribute("data-id");
 
                     // Handle various dataModTypes
                     if (dataModType == "feedback") continue;
 
                     if (dataModType == "scorm")
                     {
-                         //await DownloadScormContent(driver, sectionDirectory, sectionDirectory, dataTitle);
+                        //await DownloadScormContent(driver, sectionDirectory, sectionDirectory, dataTitle);
                         continue;
                     }
 
                     if (dataModType == "label")
                     {
-                         i++;
-                         await DownloadLabelContent(driver, sectionDirectory, dataTitle, i, dataId);
+                        i++;
+                        await DownloadLabelContent(driver, sectionDirectory, dataTitle, i, dataId);
                         continue;
                     }
                     else
@@ -2195,7 +2210,75 @@ namespace MoodleExtraction.Controllers
             {
                 Console.WriteLine($"Error uploading JSON to Cosmos DB: {ex.Message}");
             }
+
+
+
+
         }
+
+
+        //private async Task UploadJsonToCosmosDb(CourseJson courseJson)
+        //{
+        //    try
+        //    {
+        //        // Query for the existing course based on CourseName
+        //        var query = new QueryDefinition("SELECT * FROM c WHERE c.CourseName = @courseName")
+        //            .WithParameter("@courseName", courseJson.CourseName);
+
+        //        var iterator = _cosmosContainer.GetItemQueryIterator<CourseJson>(query);
+        //        CourseJson existingCourse = null;
+
+        //        // Fetch the existing course
+        //        while (iterator.HasMoreResults)
+        //        {
+        //            var response = await iterator.ReadNextAsync();
+        //            existingCourse = response.FirstOrDefault();
+        //            if (existingCourse != null) break;
+        //        }
+
+        //        if (existingCourse == null)
+        //        {
+        //            Console.WriteLine($"No existing course found with CourseName: {courseJson.CourseName}");
+        //            return;
+        //        }
+
+        //        // Filter contents with type "html" from incoming courseJson
+        //        var newHtmlContents = courseJson.Elements?
+        //            .SelectMany(e => e.contents ?? new List<Content>())
+        //            .Where(c => c.Type == "html")
+        //            .ToList() ?? new List<Content>();
+
+        //        // Update existing course by adding new HTML contents to corresponding Elements
+        //        foreach (var newElement in courseJson.Elements)
+        //        {
+        //            // Find the corresponding element in the existing course
+        //            var existingElement = existingCourse.Elements?.FirstOrDefault(e => e.ElementName == newElement.ElementName);
+
+        //            if (existingElement != null)
+        //            {
+        //                foreach (var newContent in newElement.contents.Where(c => c.Type == "html"))
+        //                {
+        //                    // Check if the contentName already exists in the corresponding element
+        //                    if (!existingElement.contents.Any(c => c.ContentName == newContent.ContentName))
+        //                    {
+        //                        existingElement.contents.Add(newContent);
+        //                    }
+        //                }
+        //            }
+        //        }
+
+        //        // Update the existing course in Cosmos DB
+        //        await _cosmosContainer.ReplaceItemAsync(existingCourse, existingCourse.id, new PartitionKey(existingCourse.CourseId));
+        //        Console.WriteLine($"Course JSON updated in Cosmos DB with CourseId: {existingCourse.CourseId}");
+        //    }
+        //    catch (CosmosException ex)
+        //    {
+        //        Console.WriteLine($"Error uploading JSON to Cosmos DB: {ex.Message}");
+        //    }
+        //}
+
+
+
 
     }
 }

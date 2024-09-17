@@ -1558,6 +1558,7 @@ namespace MoodleExtraction.Controllers
                     var noOverflowDiv = driver.FindElement(By.CssSelector("div.no-overflow"));
                     string geoGebraHtml = noOverflowDiv.GetAttribute("outerHTML");
 
+
                     // Save the HTML content to a file
                     string geoGebraFilePath = Path.Combine(sectionDirectory, $"{activityName}_geogebra.html");
                     await System.IO.File.WriteAllTextAsync(geoGebraFilePath, geoGebraHtml);
@@ -1575,7 +1576,6 @@ namespace MoodleExtraction.Controllers
                 {
                     Console.WriteLine($"Unexpected error: {ex.Message}");
                 }
-
 
                 // Extract the ggbBase64 value from the script elements
                 var scriptElements = driver.FindElements(By.TagName("script"));

@@ -1552,13 +1552,29 @@ namespace MoodleExtraction.Controllers
 
             try
             {
-                // Extract the HTML content from the no-overflow div
-                var noOverflowDiv = driver.FindElement(By.CssSelector("div.no-overflow"));
-                string geoGebraHtml = noOverflowDiv.GetAttribute("outerHTML");
+                try
+                {
+                    // Extract the HTML content from the no-overflow div
+                    var noOverflowDiv = driver.FindElement(By.CssSelector("div.no-overflow"));
+                    string geoGebraHtml = noOverflowDiv.GetAttribute("outerHTML");
 
-                // Save the HTML content to a file
-                string geoGebraFilePath = Path.Combine(sectionDirectory, $"{activityName}_geogebra.html");
-                await System.IO.File.WriteAllTextAsync(geoGebraFilePath, geoGebraHtml);
+                    // Save the HTML content to a file
+                    string geoGebraFilePath = Path.Combine(sectionDirectory, $"{activityName}_geogebra.html");
+                    await System.IO.File.WriteAllTextAsync(geoGebraFilePath, geoGebraHtml);
+                }
+                catch (NoSuchElementException ex)
+                {
+                    Console.WriteLine($"NoSuchElementException: {ex.Message}");
+                }
+                catch (StaleElementReferenceException ex)
+                {
+                    Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
+                    // You might want to refresh the sectionElement reference here if needed
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Unexpected error: {ex.Message}");
+                }
 
                 // Extract the ggbBase64 value from the script elements
                 var scriptElements = driver.FindElements(By.TagName("script"));

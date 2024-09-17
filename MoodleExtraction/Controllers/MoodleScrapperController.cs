@@ -384,8 +384,23 @@ namespace MoodleExtraction.Controllers
 
             foreach (var sectionElementId in sectionElements)
             {
-                IWebElement section = null ;
-                section = driver.FindElement(By.Id(sectionElementId));
+                IWebElement section = null;
+                try
+                {
+                    WebDriverWait wait2_ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+                    section = wait2_.Until(ExpectedConditions.ElementIsVisible(By.Id(sectionElementId)));
+                }
+                catch (NoSuchElementException ex)
+                {
+                    Console.WriteLine($"Element not found: {ex.Message}");
+                    continue;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Unexpected error: {ex.Message}");
+                    continue;
+                }
+
 
                 try
                 {
@@ -423,6 +438,10 @@ namespace MoodleExtraction.Controllers
                     {
                         case "TEST":
                             await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                            driver.Navigate().GoToUrl(activityUrl); // Corrected from activityUrl to sectionActivityUrl
+                                                                    // Wait for the section to be visible
+                            WebDriverWait wait__ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+                            wait__.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));
                             break;
                         case "H5P":
                             await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
@@ -2189,7 +2208,7 @@ namespace MoodleExtraction.Controllers
             }
 
             string jsonOutput = JsonSerializer.Serialize(courseJson, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
-            string jsonFilePath = Path.Combine(courseDirectory, $"{courseName}.json");
+            string jsonFilePath = Path.Combine(courseDirectory, $"{SanitizeFileName(courseName.Trim())}.json");
 
             await System.IO.File.WriteAllTextAsync(jsonFilePath, jsonOutput);
 

@@ -170,26 +170,26 @@ namespace MoodleExtraction.Controllers
                  }**/
 
                 // Process each course
-                var courseDirectories = Directory.GetDirectories(request.CoursesPath);
+                //var courseDirectories = Directory.GetDirectories(request.CoursesPath);
 
-                foreach (var courseDirectory in courseDirectories)
-                {
-                    string courseName = Path.GetFileName(courseDirectory);
-                    var sectionDirectories = Directory.GetDirectories(courseDirectory).ToList();
+                //foreach (var courseDirectory in courseDirectories)
+                //{
+                //    string courseName = Path.GetFileName(courseDirectory);
+                //    var sectionDirectories = Directory.GetDirectories(courseDirectory).ToList();
 
-                    if (sectionDirectories.Any())
-                    {
-                        // Generate JSON for the course
-                        List<ElementProgramme> elementProgrammes = new List<ElementProgramme>
-                {
-                    new ElementProgramme { Level = 1, Code = "2d1d190d-5150-42f3-879d-0097063c806e" },
-                    new ElementProgramme { Level = 2, Code = "395c7c8e-475a-45e9-a0b4-11ef241a6463" },
-                    new ElementProgramme { Level = 3, Code = "d4892214-c5a8-4294-9eda-c3c552d49b79" }
-                };
+                //    if (sectionDirectories.Any())
+                //    {
+                //        // Generate JSON for the course
+                //        List<ElementProgramme> elementProgrammes = new List<ElementProgramme>
+                //{
+                //    new ElementProgramme { Level = 1, Code = "2d1d190d-5150-42f3-879d-0097063c806e" },
+                //    new ElementProgramme { Level = 2, Code = "395c7c8e-475a-45e9-a0b4-11ef241a6463" },
+                //    new ElementProgramme { Level = 3, Code = "d4892214-c5a8-4294-9eda-c3c552d49b79" }
+                //};
 
-                        await GenerateCourseJson(courseName, courseDirectory, null, sectionDirectories, elementProgrammes);
-                    }
-                }
+                //        await GenerateCourseJson(courseName, courseDirectory, null, sectionDirectories, elementProgrammes);
+                //    }
+                //}
 
                 // Upload all contents to Blob Storage
                 await UploadToBlobStorageAsync(request.CoursesPath);
@@ -205,20 +205,20 @@ namespace MoodleExtraction.Controllers
         private async Task ProcessCourseAfterDownload(string courseName, string courseDirectory)
         {
             // Get the list of section directories within the course directory
-            var sectionDirectories = Directory.GetDirectories(courseDirectory).ToList();
+        //    var sectionDirectories = Directory.GetDirectories(courseDirectory).ToList();
 
-            if (sectionDirectories.Any())
-            {
-                // Generate JSON for the course
-                List<ElementProgramme> elementProgrammes = new List<ElementProgramme>
-        {
-            new ElementProgramme { Level = 1, Code = "2d1d190d-5150-42f3-879d-0097063c806e" },
-            new ElementProgramme { Level = 2, Code = "395c7c8e-475a-45e9-a0b4-11ef241a6463" },
-            new ElementProgramme { Level = 3, Code = "d4892214-c5a8-4294-9eda-c3c552d49b79" }
-        };
+        //    if (sectionDirectories.Any())
+        //    {
+        //        // Generate JSON for the course
+        //        List<ElementProgramme> elementProgrammes = new List<ElementProgramme>
+        //{
+        //    new ElementProgramme { Level = 1, Code = "2d1d190d-5150-42f3-879d-0097063c806e" },
+        //    new ElementProgramme { Level = 2, Code = "395c7c8e-475a-45e9-a0b4-11ef241a6463" },
+        //    new ElementProgramme { Level = 3, Code = "d4892214-c5a8-4294-9eda-c3c552d49b79" }
+        //};
 
-                await GenerateCourseJson(courseName, courseDirectory, null, sectionDirectories, elementProgrammes);
-            }
+        //        await GenerateCourseJson(courseName, courseDirectory, null, sectionDirectories, elementProgrammes);
+        //    }
 
             // Upload all contents to Blob Storage
             await UploadToBlobStorageAsync(courseDirectory);
@@ -346,7 +346,7 @@ namespace MoodleExtraction.Controllers
                     if (sectionTitle.Contains("Média"))
                     {
                         // Handle media content based on the section title
-                        await DownloadMediaContent(driver, section, sectionDirectory);
+                        //await DownloadMediaContent(driver, section, sectionDirectory);
                         return; // Exit the method after handling media content
                     }
 
@@ -366,18 +366,6 @@ namespace MoodleExtraction.Controllers
                     await Task.Delay(1000); // Wait and retry
                 }
             }
-
-            if (sectionElements.Count == 0)
-            {
-                await DownloadPageContent(driver, "", sectionDirectory, sectionName);
-            }
-            else
-            {
-                await DownloadDescriptionContent(driver, sectionDirectory, "Description");
-            }
-
-            int i = 0;
-
 
 
             Console.WriteLine($"Total section elements found: {sectionElements?.Count}");
@@ -419,7 +407,9 @@ namespace MoodleExtraction.Controllers
                     string type = typeElement.Text.Trim();
                     var nameText = nameElement.Text;
 
-                    //if (type != "TEST") continue;
+                    if (type != "TEST") continue;
+                    //continue;
+                
 
                     // Handle hidden span elements
                     var hiddenSpanElements = nameElement.FindElements(By.CssSelector("span.accesshide"));
@@ -437,34 +427,35 @@ namespace MoodleExtraction.Controllers
                     switch (type)
                     {
                         case "TEST":
+                            DeleteAllImagesInDirectory("C:\\Users\\hishame2\\Downloads");
                             await DownloadTestContent(driver, sectionActivityUrl, sectionDirectory, activityName);
                             driver.Navigate().GoToUrl(activityUrl); // Corrected from activityUrl to sectionActivityUrl
                                                                     // Wait for the section to be visible
                             WebDriverWait wait__ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
                             wait__.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));
                             break;
-                        case "H5P":
-                            await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                            break;
-                        case "GEOGEBRA":
-                            await DownloadGeoGebraContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                            break;
-                        case "FICHIER":
-                            var activityContainerElement = section?.FindElement(By.CssSelector("div.tiles-activity-container"));
-                            string dataUrl = activityContainerElement.GetAttribute("data-url");
+                        //case "H5P":
+                        //    await DownloadH5PContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                        //    break;
+                        //case "GEOGEBRA":
+                        //    await DownloadGeoGebraContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                        //    break;
+                        //case "FICHIER":
+                        //    var activityContainerElement = section?.FindElement(By.CssSelector("div.tiles-activity-container"));
+                        //    string dataUrl = activityContainerElement.GetAttribute("data-url");
 
-                            if (!string.IsNullOrEmpty(dataUrl))
-                            {
-                                await DownloadPdfFile(driver, dataUrl, sectionDirectory);
-                            }
-                            break;
-                        case "PAGE":
-                            await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
-                            driver.Navigate().GoToUrl(activityUrl); // Corrected from activityUrl to sectionActivityUrl
-                                                                           // Wait for the section to be visible
-                            WebDriverWait wait_ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
-                            wait_.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));
-                            break;
+                        //    if (!string.IsNullOrEmpty(dataUrl))
+                        //    {
+                        //        await DownloadPdfFile(driver, dataUrl, sectionDirectory);
+                        //    }
+                        //    break;
+                        //case "PAGE":
+                        //    await DownloadPageContent(driver, sectionActivityUrl, sectionDirectory, activityName);
+                        //    driver.Navigate().GoToUrl(activityUrl); // Corrected from activityUrl to sectionActivityUrl
+                        //                                                   // Wait for the section to be visible
+                        //    WebDriverWait wait_ = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+                        //    wait_.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("div.format_tiles_section_content")));
+                        //    break;
 
 
                     }
@@ -492,52 +483,52 @@ namespace MoodleExtraction.Controllers
 
 
                 // Handle attributes and different dataModTypes
-                string dataModType = string.Empty;
-                string dataTitle = string.Empty;
-                string dataId = string.Empty;
+                //string dataModType = string.Empty;
+                //string dataTitle = string.Empty;
+                //string dataId = string.Empty;
 
-                try
-                {
-                    //continue;
+                //try
+                //{
+                //    //continue;
 
-                    // Re-locate element before accessing attributes
-                    dataModType = section?.GetAttribute("data-modtype");
-                    dataTitle = section?.GetAttribute("data-title");
-                    dataId = section?.GetAttribute("data-id");
+                //    // Re-locate element before accessing attributes
+                //    dataModType = section?.GetAttribute("data-modtype");
+                //    dataTitle = section?.GetAttribute("data-title");
+                //    dataId = section?.GetAttribute("data-id");
 
-                    // Handle various dataModTypes
-                    if (dataModType == "feedback") continue;
+                //    // Handle various dataModTypes
+                //    if (dataModType == "feedback") continue;
 
-                    if (dataModType == "scorm")
-                    {
-                        //await DownloadScormContent(driver, sectionDirectory, sectionDirectory, dataTitle);
-                        continue;
-                    }
+                //    if (dataModType == "scorm")
+                //    {
+                //        //await DownloadScormContent(driver, sectionDirectory, sectionDirectory, dataTitle);
+                //        continue;
+                //    }
 
-                    if (dataModType == "label")
-                    {
-                        i++;
-                        await DownloadLabelContent(driver, sectionDirectory, dataTitle, i, dataId);
-                        continue;
-                    }
-                    else
-                    {
-                        i = 0;
-                    }
-                }
-                catch (NoSuchElementException ex)
-                {
-                    Console.WriteLine($"NoSuchElementException: {ex.Message}");
-                }
-                catch (StaleElementReferenceException ex)
-                {
-                    Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
-                    // You might want to refresh the sectionElement reference here if needed
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Unexpected error: {ex.Message}");
-                }
+                //    if (dataModType == "label")
+                //    {
+                //        i++;
+                //        await DownloadLabelContent(driver, sectionDirectory, dataTitle, i, dataId);
+                //        continue;
+                //    }
+                //    else
+                //    {
+                //        i = 0;
+                //    }
+                //}
+                //catch (NoSuchElementException ex)
+                //{
+                //    Console.WriteLine($"NoSuchElementException: {ex.Message}");
+                //}
+                //catch (StaleElementReferenceException ex)
+                //{
+                //    Console.WriteLine($"StaleElementReferenceException: {ex.Message}");
+                //    // You might want to refresh the sectionElement reference here if needed
+                //}
+                //catch (Exception ex)
+                //{
+                //    Console.WriteLine($"Unexpected error: {ex.Message}");
+                //}
             }
 
 
@@ -1041,7 +1032,34 @@ namespace MoodleExtraction.Controllers
             return htmlContent;
         }
 
-      
+        private void DeleteAllImagesInDirectory(string directory)
+        {
+            if (Directory.Exists(directory))
+            {
+                var imageFiles = Directory.EnumerateFiles(directory, "*.*")
+                    .Where(file => file.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                   file.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+                                   file.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                   file.EndsWith(".gif", StringComparison.OrdinalIgnoreCase));
+
+                foreach (var file in imageFiles)
+                {
+                    try
+                    {
+                        System.IO.File.Delete(file);
+                        Console.WriteLine($"Deleted: {file}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to delete file: {file}. Error: {ex.Message}");
+                    }
+                }
+            }
+            else
+            {
+                Console.WriteLine("Directory does not exist.");
+            }
+        }
 
 
         private async Task<string> DownloadAndReplaceImages(IWebDriver driver, string htmlContent, string imagesDirectory)
@@ -1060,7 +1078,7 @@ namespace MoodleExtraction.Controllers
                     // Handle relative URLs by making them absolute
                     url = "https://m3.inpt.ac.ma" + url;
                 }
-
+                
                 try
                 {
                     // Open the image URL in a new tab
@@ -1077,7 +1095,7 @@ namespace MoodleExtraction.Controllers
                     string downloadsDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
 
                     string tempFilePath = Path.Combine(downloadsDirectory, fileName);
-
+                   
                     // Trigger download using JavaScript
                     ((IJavaScriptExecutor)driver).ExecuteScript($@"
                 var link = document.createElement('a');
@@ -1095,7 +1113,7 @@ namespace MoodleExtraction.Controllers
                     System.IO.File.Move(tempFilePath, finalFilePath);
 
                     // Replace the URL in the HTML with the relative path
-                    string relativePath = Path.Combine(Path.GetFileName(imagesDirectory), fileName).Replace("\\", "/");
+                    string relativePath = Path.Combine("images",Path.GetFileName(imagesDirectory), fileName).Replace("\\", "/");
                     htmlContent = htmlContent.Replace(url, relativePath + SasToken);
                 }
                 catch (Exception ex)
@@ -1185,7 +1203,7 @@ namespace MoodleExtraction.Controllers
                     }
 
                     // Replace the URL in the HTML with the relative path
-                    string relativePath = Path.Combine(Path.GetFileName(directory), fileName).Replace("\\", "/");
+                    string relativePath = Path.Combine(attribute == "src"?"scripts":"styles",Path.GetFileName(directory), fileName).Replace("\\", "/");
                     htmlContent = htmlContent.Replace(url, relativePath + SasToken);
                 }
                 catch (Exception ex)
@@ -1342,7 +1360,6 @@ namespace MoodleExtraction.Controllers
 
         private async Task DownloadTestContent(IWebDriver driver, string testUrl, string sectionDirectory, string activityName)
         {
-
             driver.Navigate().GoToUrl(testUrl);
             await Task.Delay(2000); // Wait for the page to load
 
@@ -1350,20 +1367,97 @@ namespace MoodleExtraction.Controllers
             {
                 var continueButton = driver.FindElement(By.CssSelector("button.btn.btn-primary"));
                 continueButton.Click();
-                await Task.Delay(2000); // Wait for the test page to load
+                await Task.Delay(6000); // Wait for the test page to fully load (extend if necessary)
 
                 string testPageHtml = driver.PageSource;
+                Console.WriteLine(testPageHtml); // Log the page source for debugging before changes
 
                 // Remove unwanted HTML elements
                 testPageHtml = RemoveUnwantedHtmlElements(testPageHtml);
 
+                // Check if there's a <head> tag to insert the <style> block, otherwise add it at the beginning
+                if (testPageHtml.Contains("</head>"))
+                {
+                    testPageHtml = Regex.Replace(testPageHtml, @"</head>",
+                        "<style>.dropzones .dragplaceholder { display: none !important;}   </style></head>",
+                        RegexOptions.IgnoreCase);
+                }
+                else
+                {
+                    // If no <head> tag is found, insert the <style> tag at the top of the document
+                    testPageHtml = "<style>.dropzones .dragplaceholder { display: none !important; }  </style>" + testPageHtml;
+                }
+
+
+                // Remove all elements that contain the class 'dragplaceholder'
+                testPageHtml = Regex.Replace(testPageHtml,
+                    @"<[^>]*class=['""][^'""]*\bdragplaceholder\b(?![^'""]*\bactive\b)[^'""]*['""][^>]*>.*?</[^>]*>",
+                    "",
+                    RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+                // Remove all elements that contain the class 'placed'
+                //testPageHtml = Regex.Replace(testPageHtml, @"<[^>]*\bclass=['""][^'""]*\bplaced\b[^'""]*['""][^>]*>.*?</[^>]*>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+
+
+                testPageHtml = Regex.Replace(testPageHtml,
+       @"<div[^>]*class=['""][^'""]*\bdropzone\b[^'""]*['""][^>]*>.*?</div>",
+       "",
+       RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+
+
+
+
+
+
+
+                // Remove the class 'issidebar' from elements
+                testPageHtml = Regex.Replace(testPageHtml, @"(class=['""][^'""]*)issidebar([^'""]*['""])", "$1$2", RegexOptions.IgnoreCase);
+
+                string script = @"
+<script>
+    // Set a timeout to delay the execution
+    setTimeout(() => {
+
+        // Select all the dropzones elements
+        const dropzones = document.querySelectorAll('.dropzones .dragplaceholder');
+
+        // Loop through all selected elements and remove them
+        dropzones.forEach((element) => {
+            element.remove(); // This removes the element from the DOM
+        });
+
+        // Select all the draghomes elements
+        const dragHomes = document.querySelectorAll('.draghomes');
+
+        dragHomes.forEach((dragHome) => {
+            // Loop through each choice class from 1 to 15
+            for (let i = 1; i <= 15; i++) {
+                // Select all the dragplaceholder.active elements with the current choice class
+                const choices = dragHome.querySelectorAll(`.choice${i}.dragplaceholder.active`);
+
+                // If there are at least two such elements, remove the second one
+                if (choices.length >= 2) {
+                    choices[1].remove(); // This removes the second element from the DOM
+                }
+            }
+        });
+    }, 3000); // Execute the code after 3 seconds
+</script>";
+
+                // Add the script before the closing body tag
+                testPageHtml = Regex.Replace(testPageHtml, @"</body>", script + "\n</body>", RegexOptions.IgnoreCase);
+
                 testPageHtml = Regex.Replace(testPageHtml, @"<div[^>]*class=['""][^'""]*theme-coursenav[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
 
+                var docId = Guid.NewGuid();
+
                 // Create directories for scripts, styles, and images
-                string scriptsDirectory = Path.Combine(sectionDirectory, "scripts");
-                string stylesDirectory = Path.Combine(sectionDirectory, "styles");
-                string imagesDirectory = Path.Combine(sectionDirectory, "images");
+                string scriptsDirectory = Path.Combine(sectionDirectory, "scripts",$"{activityName}_{docId}");
+                string stylesDirectory = Path.Combine(sectionDirectory, "styles", $"{activityName}_{docId}");
+                string imagesDirectory = Path.Combine(sectionDirectory, "images", $"{activityName}_{docId}");
 
                 Directory.CreateDirectory(scriptsDirectory);
                 Directory.CreateDirectory(stylesDirectory);
@@ -1381,6 +1475,84 @@ namespace MoodleExtraction.Controllers
                 // Handle the case where the continue button is not found
             }
         }
+
+        private string RemoveElementWithClass(string html, string className)
+        {
+            var regex = new Regex($@"<div[^>]*class=['""][^'""]*\b{className}\b[^'""]*['""][^>]*>(.*?)<\/div>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            return regex.Replace(html, ""); // Replace matching elements with an empty string (i.e., remove them)
+        }
+
+        /*
+         Evaluation des prérequis - 1APIC
+        La formation des roches sédimentaires - Le transport
+         La formation des roches sédimentaires - L'érosion
+         Réalisation et exploitation de la sortie géologique
+        Préparation de la sortie géologique
+        Production de la matière organique chez les plantes vertes
+        Les besoins nutritifs chez les plantes vertes
+        Comparaison entre le régime alimentaire herbivore et carnivore
+        Adaptation au régime alimentaire omnivore chez l'Homme
+        Consolidation et renforcement des acquis/ Semi-semestre 1
+        Les organes respiratoires dans le milieu aquatique
+        Les organes respiratoires dans un milieu aérien
+        Mise en évidence des échanges gazeux respiratoires chez les êtres vivants
+        Cellule, point commun entre les êtres vivants
+        Interactions entre les composantes d'un milieu naturel
+        La découverte d'un milieu naturel
+        Chaines alimentaires et réseaux trophiques
+        Production de la matière et flux de l'énergie
+        Les équilibres naturels
+        Classification des êtres vivants
+        La formation des roches sédimentaires - Sédimentation
+        La formation des roches sédimentaires - La diagénèse
+        Classification des roches sédimentaires
+        Importance géologique des fossiles
+        L'échelle stratigraphique
+        La digestion des aliments dans le tube digestif 2
+        Cellule, point commun entre les êtres vivants
+         */
+
+        //private async Task DownloadTestContent(IWebDriver driver, string testUrl, string sectionDirectory, string activityName)
+        //{
+
+        //    driver.Navigate().GoToUrl(testUrl);
+        //    await Task.Delay(2000); // Wait for the page to load
+
+        //    try
+        //    {
+        //        var continueButton = driver.FindElement(By.CssSelector("button.btn.btn-primary"));
+        //        continueButton.Click();
+        //        await Task.Delay(2000); // Wait for the test page to load
+
+        //        string testPageHtml = driver.PageSource;
+
+        //        // Remove unwanted HTML elements
+        //        testPageHtml = RemoveUnwantedHtmlElements(testPageHtml);
+
+        //        testPageHtml = Regex.Replace(testPageHtml, @"<div[^>]*class=['""][^'""]*theme-coursenav[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+
+
+        //        // Create directories for scripts, styles, and images
+        //        string scriptsDirectory = Path.Combine(sectionDirectory, "scripts");
+        //        string stylesDirectory = Path.Combine(sectionDirectory, "styles");
+        //        string imagesDirectory = Path.Combine(sectionDirectory, "images");
+
+        //        Directory.CreateDirectory(scriptsDirectory);
+        //        Directory.CreateDirectory(stylesDirectory);
+        //        Directory.CreateDirectory(imagesDirectory);
+
+        //        // Download and replace external resources
+        //        testPageHtml = await DownloadAndReplaceResources(driver, testPageHtml, scriptsDirectory, stylesDirectory, imagesDirectory);
+
+        //        // Save the modified HTML content to a file
+        //        string testFilePath = Path.Combine(sectionDirectory, $"{activityName}.html");
+        //        await System.IO.File.WriteAllTextAsync(testFilePath, testPageHtml);
+        //    }
+        //    catch (NoSuchElementException)
+        //    {
+        //        // Handle the case where the continue button is not found
+        //    }
+        //}
 
         private string RemoveUnwantedHtmlElements(string htmlContent)
         {
@@ -2287,7 +2459,7 @@ namespace MoodleExtraction.Controllers
         //        foreach (var newElement in courseJson.Elements)
         //        {
         //            // Find the corresponding element in the existing course
-        //            var existingElement = existingCourse.Elements?.FirstOrDefault(e => e.ElementName == newElement.ElementName);
+        //            var existingElement = existingCourse.Elements?.FirstOrDefault(e => e.ElementName == newElement.ElementName && newElement.contents.Count() > 0);
 
         //            if (existingElement != null)
         //            {

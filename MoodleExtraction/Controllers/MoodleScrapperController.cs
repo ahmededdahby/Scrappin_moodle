@@ -1398,6 +1398,10 @@ namespace MoodleExtraction.Controllers
                 // Remove all elements that contain the class 'placed'
                 //testPageHtml = Regex.Replace(testPageHtml, @"<[^>]*\bclass=['""][^'""]*\bplaced\b[^'""]*['""][^>]*>.*?</[^>]*>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
+                // Remove all elements that contain the class 'editquestion'
+                testPageHtml = Regex.Replace(testPageHtml, @"<div[^>]*\bclass=['""][^'""]*\beditquestion\b[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                testPageHtml = Regex.Replace(testPageHtml, @"<div[^>]*\bclass=['""][^'""]*\bcoursenav-next\b[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                testPageHtml = Regex.Replace(testPageHtml, @"<div[^>]*\bclass=['""][^'""]*\bcoursenav-previous\b[^'""]*['""][^>]*>.*?</div>", "", RegexOptions.IgnoreCase | RegexOptions.Singleline);
 
 
                 testPageHtml = Regex.Replace(testPageHtml,
